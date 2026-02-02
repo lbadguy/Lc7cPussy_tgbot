@@ -8,7 +8,7 @@
 """
 import asyncio
 import logging
-from datetime import time as dt_time
+from datetime import time as dt_time, datetime, timedelta, timezone
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
@@ -43,6 +43,28 @@ MAX_HISTORY = 10
 
 # ===== 命令处理器 =====
 
+# 中国时区 UTC+8
+CHINA_TZ = timezone(timedelta(hours=8))
+
+
+def get_next_push_time(hour: int, minute: int = 0) -> str:
+    """计算距离下次推送的时间"""
+    now = datetime.now(CHINA_TZ)
+    target = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+    
+    if now >= target:
+        target += timedelta(days=1)
+    
+    diff = target - now
+    hours = int(diff.total_seconds() // 3600)
+    minutes = int((diff.total_seconds() % 3600) // 60)
+    
+    if hours > 0:
+        return f"{hours}小时{minutes}分钟"
+    else:
+        return f"{minutes}分钟"
+
+
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """处理 /start 命令"""
     user_id = update.effective_user.id
@@ -50,6 +72,11 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     # 添加订阅
     database.add_subscription(user_id)
+    
+    # 计算下次推送时间
+    next_weather = get_next_push_time(8, 0)  # 8:00
+    next_weather_evening = get_next_push_time(20, 0)  # 20:00
+    next_news = get_next_push_time(20, 0)  # 20:00
     
     # 记录日志
     logger.info(f"[新用户] {user_name} (ID:{user_id}) 加入了大鸡巴俱乐部")
@@ -70,8 +97,11 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 记住：鸡大者，得天下 🌍
 *Remember: He who has the biggest cock, rules the world* 🌍
 
-已订阅每日推送，让大鸡巴每天叫你起床！⏰
-*Daily notifications enabled - BigCock will wake you up every day!* ⏰
+━━━━ **每日推送** ━━━━
+⏰ 天气预报: 每日 8:00 和 20:00
+    └ 下次推送: {next_weather}
+📰 新闻汇总: 每日 20:00
+    └ 下次推送: {next_news}
 """
     await update.message.reply_text(welcome, parse_mode='Markdown')
 
@@ -444,16 +474,18 @@ def main():
         logger.error(f"Bot 错误: {context.error}")
     application.add_error_handler(error_handler)
     
-    # 添加定时任务
+    # 添加定时任务（使用 UTC+8 时区）
     job_queue = application.job_queue
     # 每日 8:00 推送天气 (UTC+8)
-    job_queue.run_daily(scheduled_weather_push, time=dt_time(hour=8, minute=0))
+    job_queue.run_daily(scheduled_weather_push, time=dt_time(hour=8, minute=0, tzinfo=CHINA_TZ))
+    # 每日 20:00 推送天气 (UTC+8)
+    job_queue.run_daily(scheduled_weather_push, time=dt_time(hour=20, minute=0, tzinfo=CHINA_TZ))
     # 每日 20:00 推送频道汇总 (UTC+8)
-    job_queue.run_daily(scheduled_channel_summary, time=dt_time(hour=20, minute=0))
+    job_queue.run_daily(scheduled_channel_summary, time=dt_time(hour=20, minute=0, tzinfo=CHINA_TZ))
     
     print("✅ Bot 已启动！")
     print("📌 功能: 天气预报 | 频道汇总 | AI 对话")
-    print("⏰ 定时任务: 8:00 天气 | 20:00 频道汇总")
+    print("⏰ 定时任务: 8:00/20:00 天气 | 20:00 频道汇总")
     print("按 Ctrl+C 停止")
     
     # 启动
