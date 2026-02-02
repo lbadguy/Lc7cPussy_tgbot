@@ -1,0 +1,7 @@
+# 忽略文件
+__pycache__/
+*.py[cod]
+.env
+*.session
+data/
+bot_session.session
