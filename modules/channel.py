@@ -121,7 +121,7 @@ def format_messages_page(messages: list[dict], page: int = 1, total_pages: int =
         return "📭 没有找到消息"
     
     lines = [f"📰 **{title}**"]
-    lines.append(f"📄 第 {page}/{total_pages} 页 | 共 {len(messages) if page == 1 else ''}条\n")
+    lines.append(f"📄 第 {page}/{total_pages} 页 | 共 {len(messages)} 条\n")
     
     start = (page - 1) * PAGE_SIZE
     end = start + PAGE_SIZE
