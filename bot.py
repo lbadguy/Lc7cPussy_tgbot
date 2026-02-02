@@ -176,6 +176,24 @@ async def test_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(message)
 
 
+async def news_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """处理 /news 命令 - 手动获取频道消息"""
+    # 检查 Telethon 是否可用
+    if not channel.telethon_client:
+        await update.message.reply_text("❌ 频道功能不可用\n请检查 TELEGRAM_API_ID 和 TELEGRAM_API_HASH 是否已配置")
+        return
+    
+    await update.message.reply_text("📰 正在获取频道消息...")
+    
+    try:
+        summary = await channel.get_channel_summary()
+        logger.info(f"[频道] 获取到消息汇总")
+        await update.message.reply_text(summary, parse_mode='Markdown')
+    except Exception as e:
+        logger.error(f"获取频道消息失败: {e}")
+        await update.message.reply_text(f"❌ 获取失败: {str(e)[:100]}")
+
+
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """处理普通文本消息"""
     user_id = update.effective_user.id
@@ -310,6 +328,7 @@ def main():
     application.add_handler(CommandHandler("chat", chat_command))
     application.add_handler(CommandHandler("model", model_command))
     application.add_handler(CommandHandler("test", test_command))
+    application.add_handler(CommandHandler("news", news_command))
     
     # 添加消息处理器
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
