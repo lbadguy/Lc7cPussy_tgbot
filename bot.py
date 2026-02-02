@@ -10,11 +10,12 @@ import asyncio
 import logging
 from datetime import time as dt_time
 
-from telegram import Update
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     Application,
     CommandHandler,
     MessageHandler,
+    CallbackQueryHandler,
     filters,
     ContextTypes,
 )
@@ -176,22 +177,124 @@ async def test_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(message)
 
 
+# 缓存消息列表（用于翻页）
+news_cache = {}
+
 async def news_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """处理 /news 命令 - 手动获取频道消息"""
+    """处理 /news 命令 - 频道消息功能"""
+    user_id = update.effective_user.id
+    
     # 检查 Telethon 是否可用
     if not channel.telethon_client:
         await update.message.reply_text("❌ 频道功能不可用\n请检查 TELEGRAM_API_ID 和 TELEGRAM_API_HASH 是否已配置")
         return
     
-    await update.message.reply_text("📰 正在获取频道消息...")
+    args = context.args
     
-    try:
-        summary = await channel.get_channel_summary()
-        logger.info(f"[频道] 获取到消息汇总")
-        await update.message.reply_text(summary, parse_mode='Markdown')
-    except Exception as e:
-        logger.error(f"获取频道消息失败: {e}")
-        await update.message.reply_text(f"❌ 获取失败: {str(e)[:100]}")
+    # /news search 关键词
+    if args and args[0].lower() == "search" and len(args) > 1:
+        keyword = " ".join(args[1:])
+        await update.message.reply_text(f"🔍 正在搜索: {keyword}...")
+        
+        messages = await channel.search_messages(keyword)
+        if not messages:
+            await update.message.reply_text(f"😢 没有找到包含「{keyword}」的消息")
+            return
+        
+        news_cache[user_id] = {"messages": messages, "type": "search", "keyword": keyword}
+        total_pages = channel.get_total_pages(messages)
+        text = channel.format_messages_page(messages, 1, total_pages, f"搜索: {keyword}")
+        
+        keyboard = _build_page_keyboard(1, total_pages)
+        await update.message.reply_text(text, parse_mode='Markdown', reply_markup=keyboard, disable_web_page_preview=True)
+        return
+    
+    # /news 数字 - 获取最近N条消息
+    if args and args[0].isdigit():
+        limit = min(int(args[0]), 100)
+        await update.message.reply_text(f"📰 正在获取最近 {limit} 条消息...")
+        
+        messages = await channel.get_messages(limit=limit, today_only=False)
+        news_cache[user_id] = {"messages": messages, "type": "recent", "limit": limit}
+        total_pages = channel.get_total_pages(messages)
+        text = channel.format_messages_page(messages, 1, total_pages, f"最近 {limit} 条消息")
+        
+        keyboard = _build_page_keyboard(1, total_pages)
+        await update.message.reply_text(text, parse_mode='Markdown', reply_markup=keyboard, disable_web_page_preview=True)
+        return
+    
+    # /news - 今日消息
+    await update.message.reply_text("📰 正在获取今日消息...")
+    
+    messages = await channel.get_messages(today_only=True)
+    if not messages:
+        await update.message.reply_text("📭 今日该频道暂无新消息\n\n💡 试试 `/news 30` 查看最近30条消息", parse_mode='Markdown')
+        return
+    
+    news_cache[user_id] = {"messages": messages, "type": "today"}
+    total_pages = channel.get_total_pages(messages)
+    text = channel.format_messages_page(messages, 1, total_pages, f"@{config.TARGET_CHANNEL} 今日消息")
+    
+    keyboard = _build_page_keyboard(1, total_pages)
+    logger.info(f"[频道] 获取到 {len(messages)} 条消息")
+    await update.message.reply_text(text, parse_mode='Markdown', reply_markup=keyboard, disable_web_page_preview=True)
+
+
+def _build_page_keyboard(current_page: int, total_pages: int):
+    """构建翻页键盘"""
+    if total_pages <= 1:
+        return None
+    
+    buttons = []
+    
+    if current_page > 1:
+        buttons.append(InlineKeyboardButton("⬅️ 上一页", callback_data=f"news_page_{current_page - 1}"))
+    
+    buttons.append(InlineKeyboardButton(f"📄 {current_page}/{total_pages}", callback_data="news_noop"))
+    
+    if current_page < total_pages:
+        buttons.append(InlineKeyboardButton("下一页 ➡️", callback_data=f"news_page_{current_page + 1}"))
+    
+    return InlineKeyboardMarkup([buttons])
+
+
+async def news_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """处理翻页按钮回调"""
+    query = update.callback_query
+    await query.answer()
+    
+    user_id = query.from_user.id
+    data = query.data
+    
+    if data == "news_noop":
+        return
+    
+    if not data.startswith("news_page_"):
+        return
+    
+    page = int(data.split("_")[2])
+    
+    # 获取缓存的消息
+    cache = news_cache.get(user_id)
+    if not cache:
+        await query.edit_message_text("❌ 消息已过期，请重新发送 /news")
+        return
+    
+    messages = cache["messages"]
+    total_pages = channel.get_total_pages(messages)
+    
+    # 构建标题
+    if cache["type"] == "search":
+        title = f"搜索: {cache['keyword']}"
+    elif cache["type"] == "recent":
+        title = f"最近 {cache['limit']} 条消息"
+    else:
+        title = f"@{config.TARGET_CHANNEL} 今日消息"
+    
+    text = channel.format_messages_page(messages, page, total_pages, title)
+    keyboard = _build_page_keyboard(page, total_pages)
+    
+    await query.edit_message_text(text, parse_mode='Markdown', reply_markup=keyboard, disable_web_page_preview=True)
 
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -329,6 +432,9 @@ def main():
     application.add_handler(CommandHandler("model", model_command))
     application.add_handler(CommandHandler("test", test_command))
     application.add_handler(CommandHandler("news", news_command))
+    
+    # 添加回调查询处理器（翻页按钮）
+    application.add_handler(CallbackQueryHandler(news_callback, pattern="^news_"))
     
     # 添加消息处理器
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
