@@ -23,19 +23,17 @@ import config
 from modules import weather, channel, chat, database
 
 # 配置日志
-# 文件日志：记录所有信息
-file_handler = logging.FileHandler('bot_debug.log', encoding='utf-8')
-file_handler.setLevel(logging.INFO)
-file_handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
-
-# 终端日志：只显示警告和错误
-console_handler = logging.StreamHandler()
-console_handler.setLevel(logging.WARNING)
-console_handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
-
-# 应用配置
-logging.basicConfig(level=logging.INFO, handlers=[file_handler, console_handler])
+logging.basicConfig(
+    format='%(asctime)s - %(message)s',
+    level=logging.INFO
+)
 logger = logging.getLogger(__name__)
+
+# 过滤掉 httpx 和 httpcore 的 INFO 日志（HTTP 200 OK 那些）
+logging.getLogger('httpx').setLevel(logging.WARNING)
+logging.getLogger('httpcore').setLevel(logging.WARNING)
+logging.getLogger('telegram.ext').setLevel(logging.WARNING)
+logging.getLogger('apscheduler').setLevel(logging.WARNING)
 
 # 用户对话历史（内存存储，限制长度）
 user_conversations = {}
@@ -47,30 +45,32 @@ MAX_HISTORY = 10
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """处理 /start 命令"""
     user_id = update.effective_user.id
+    user_name = update.effective_user.first_name or "靓仔"
     
     # 添加订阅
     database.add_subscription(user_id)
     
-    welcome = """
-👋 **欢迎使用多功能助手 Bot！**
+    # 记录日志
+    logger.info(f"[新用户] {user_name} (ID:{user_id}) 加入了大鸡巴俱乐部")
+    
+    welcome = f"""
+🍆💦 **哟~ 是 {user_name} 啊！**
+*Ayyyy~ Look who's here, it's {user_name}!*
 
-📌 **功能列表**
+欢迎来到 **大鸡巴爱小嫩逼** 俱乐部！
+*Welcome to the BigCockLovePussy Club!*
 
-🌤 **天气预报**
-• `/weather` - 查看当前城市天气
-• `/weather 城市名` - 设置新城市
-• 每日 8:00 自动推送天气
+你的大鸡巴已经准备好为你服务了 🐔
+*Your BigCock is ready to serve you* 🐔
 
-📰 **频道消息汇总**
-• 每日 20:00 推送 @zaihuapd 今日消息
+别害羞，试试发个 /help 看看我有多能干~
+*Don't be shy, try /help to see how capable I am~*
 
-🤖 **AI 对话**（需开启反代服务）
-• `/chat` - 进入 AI 对话模式
-• `/chat off` - 退出对话模式
-• `/model` - 查看/切换模型
-• `/test` - 测试 API 连接
+记住：鸡大者，得天下 🌍
+*Remember: He who has the biggest cock, rules the world* 🌍
 
-已为您开启每日推送服务！🎉
+已订阅每日推送，让大鸡巴每天叫你起床！⏰
+*Daily notifications enabled - BigCock will wake you up every day!* ⏰
 """
     await update.message.reply_text(welcome, parse_mode='Markdown')
 
@@ -186,6 +186,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return  # 不在对话模式，忽略消息
     
     user_message = update.message.text
+    user_name = update.effective_user.first_name or "用户"
+    
+    # 记录收到的消息
+    logger.info(f"[收到] {user_name}: {user_message[:50]}{'...' if len(user_message) > 50 else ''}")
     
     # 发送"正在输入"状态
     await update.message.chat.send_action("typing")
@@ -205,6 +209,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         # 调用 AI
         response = chat.chat(history, settings["model"])
+        
+        # 记录返回的消息
+        logger.info(f"[回复] Bot: {response[:50]}{'...' if len(response) > 50 else ''}")
         
         # 添加到历史
         history.append({"role": "assistant", "content": response})
