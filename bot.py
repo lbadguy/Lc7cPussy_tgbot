@@ -186,13 +186,69 @@ async def chat_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_conversations[user_id] = []
     
     settings = database.get_user_settings(user_id)
+    
+    # 构建模型选择按钮
+    keyboard = build_chat_keyboard(settings["model"])
+    
     await update.message.reply_text(
         lc7c(f"🟢 已进入 AI 对话模式\n"
         f"当前模型: `{settings['model']}`\n\n"
-        f"直接发送消息开始对话\n"
-        f"使用 `/chat off` 退出"),
-        parse_mode='Markdown'
+        f"直接发送消息开始对话"),
+        parse_mode='Markdown',
+        reply_markup=keyboard
     )
+
+
+def build_chat_keyboard(current_model: str = None) -> InlineKeyboardMarkup:
+    """构建 Chat 功能的按钮键盘"""
+    buttons = []
+    
+    # 模型选择按钮（每行2个）
+    model_buttons = []
+    for model in config.AVAILABLE_MODELS[:6]:  # 最多显示6个模型
+        # 当前模型加 ✓ 标记
+        label = f"✓ {model[:15]}" if model == current_model else model[:15]
+        model_buttons.append(InlineKeyboardButton(label, callback_data=f"chat_model_{model}"))
+    
+    # 每行放2个模型按钮
+    for i in range(0, len(model_buttons), 2):
+        buttons.append(model_buttons[i:i+2])
+    
+    # 添加退出按钮
+    buttons.append([InlineKeyboardButton("🔴 退出对话", callback_data="chat_off")])
+    
+    return InlineKeyboardMarkup(buttons)
+
+
+async def chat_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """处理 Chat 相关的回调按钮"""
+    query = update.callback_query
+    await query.answer()
+    
+    user_id = query.from_user.id
+    data = query.data
+    
+    # 退出对话
+    if data == "chat_off":
+        database.update_chat_mode(user_id, False)
+        if user_id in user_conversations:
+            del user_conversations[user_id]
+        await query.edit_message_text(lc7c("🔴 已退出 AI 对话模式"))
+        return
+    
+    # 切换模型
+    if data.startswith("chat_model_"):
+        model = data.replace("chat_model_", "")
+        if chat.is_valid_model(model):
+            database.update_model(user_id, model)
+            keyboard = build_chat_keyboard(model)
+            await query.edit_message_text(
+                lc7c(f"✅ 已切换模型\n当前: `{model}`\n\n直接发送消息开始对话"),
+                parse_mode='Markdown',
+                reply_markup=keyboard
+            )
+        else:
+            await query.answer("模型不可用", show_alert=True)
 
 
 async def model_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -517,12 +573,20 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # 添加到历史
         history.append({"role": "assistant", "content": response})
         
-        # 发送回复
+        # 构建按钮
+        keyboard = build_chat_keyboard(settings["model"])
+        
+        # 发送回复（不使用 Markdown，避免格式问题）
         if len(response) > 4000:
-            for i in range(0, len(response), 4000):
-                await update.message.reply_text(lc7c(response[i:i+4000]))
+            # 长消息分段发送，只在最后一段加按钮
+            parts = [response[i:i+4000] for i in range(0, len(response), 4000)]
+            for i, part in enumerate(parts):
+                if i == len(parts) - 1:
+                    await update.message.reply_text(lc7c(part), reply_markup=keyboard)
+                else:
+                    await update.message.reply_text(lc7c(part))
         else:
-            await update.message.reply_text(lc7c(response))
+            await update.message.reply_text(lc7c(response), reply_markup=keyboard)
             
     except Exception as e:
         logger.error(f"AI 对话出错: {e}")
@@ -618,8 +682,9 @@ def main():
     # 添加图片消息处理器（用于 /image 搜图）
     application.add_handler(MessageHandler(filters.PHOTO, handle_photo))
     
-    # 添加回调查询处理器（翻页按钮）
+    # 添加回调查询处理器
     application.add_handler(CallbackQueryHandler(news_callback, pattern="^news_"))
+    application.add_handler(CallbackQueryHandler(chat_callback, pattern="^chat_"))
     
     # 添加消息处理器
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
