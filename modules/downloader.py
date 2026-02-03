@@ -41,6 +41,11 @@ def get_site_name(url: str) -> str | None:
     return None
 
 
+def is_bilibili(url: str) -> bool:
+    """检查是否是 B站链接"""
+    return "bilibili.com" in url or "b23.tv" in url
+
+
 def is_supported_url(url: str) -> bool:
     """检查 URL 是否支持下载"""
     return get_site_name(url) is not None
@@ -57,11 +62,8 @@ async def download_video(url: str, max_size_mb: int = 50) -> tuple[bool, str, st
     temp_dir = tempfile.mkdtemp()
     output_template = os.path.join(temp_dir, "%(title).50s.%(ext)s")
     
-    # yt-dlp 配置
-    # 格式选择：最高画质视频+最佳音频，或单一最佳格式
-    # bestvideo*+bestaudio* 表示可以跨容器合并
+    # 基础配置
     ydl_opts = {
-        'format': 'bestvideo*+bestaudio*/best',
         'outtmpl': output_template,
         'noplaylist': True,
         'socket_timeout': 30,
@@ -69,9 +71,22 @@ async def download_video(url: str, max_size_mb: int = 50) -> tuple[bool, str, st
         'no_warnings': True,
         'extract_flat': False,
         'merge_output_format': 'mp4',
-        # 避免某些地区限制
         'geo_bypass': True,
+        # 重要：忽略错误，尝试下载可用的格式
+        'ignoreerrors': False,
     }
+    
+    # 根据网站选择不同的格式策略
+    if is_bilibili(url):
+        # B站特殊处理：
+        # 1. 不登录只能下载 360p/480p
+        # 2. 使用 format_sort 优先选择可用的格式
+        ydl_opts['format'] = 'bv*+ba/b'  # 最佳视频+最佳音频，或最佳单一格式
+        ydl_opts['format_sort'] = ['res:720', 'ext:mp4:m4a']  # 限制最高720p
+        logger.info("[下载] 检测到 B站链接，使用兼容格式")
+    else:
+        # 其他网站：最高画质
+        ydl_opts['format'] = 'bestvideo*+bestaudio*/best'
     
     try:
         logger.info(f"[下载] 开始下载: {url}")
@@ -90,19 +105,7 @@ def _download_sync(url: str, ydl_opts: dict, temp_dir: str, max_size_mb: int) ->
     """同步下载函数（在线程池中运行）"""
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            # 先获取信息检查大小
-            info = ydl.extract_info(url, download=False)
-            
-            if info is None:
-                return False, "❌ 无法获取视频信息", None
-            
-            # 检查文件大小
-            filesize = info.get('filesize') or info.get('filesize_approx') or 0
-            if filesize > max_size_mb * 1024 * 1024:
-                size_mb = filesize / 1024 / 1024
-                return False, f"❌ 文件太大 ({size_mb:.1f}MB)，超过 {max_size_mb}MB 限制", None
-            
-            # 下载
+            # 下载视频
             ydl.download([url])
         
         # 查找下载的文件
@@ -112,7 +115,9 @@ def _download_sync(url: str, ydl_opts: dict, temp_dir: str, max_size_mb: int) ->
             file_size = video_file.stat().st_size / 1024 / 1024
             
             if file_size > max_size_mb:
-                return False, f"❌ 文件太大 ({file_size:.1f}MB)，超过 {max_size_mb}MB 限制", None
+                # 文件太大，尝试删除并返回错误
+                video_file.unlink()
+                return False, f"❌ 文件太大 ({file_size:.1f}MB)，超过 {max_size_mb}MB 限制\n\n_Telegram 限制最大 50MB_", None
             
             logger.info(f"[下载] 成功: {video_file.name} ({file_size:.1f}MB)")
             return True, f"✅ 下载成功 ({file_size:.1f}MB)", str(video_file)
@@ -123,16 +128,24 @@ def _download_sync(url: str, ydl_opts: dict, temp_dir: str, max_size_mb: int) ->
         error = str(e)
         logger.error(f"[下载] 失败: {error[:200]}")
         
+        # 针对不同错误给出友好提示
         if "Video unavailable" in error:
             return False, "❌ 视频不可用或已被删除", None
         elif "Private video" in error:
             return False, "❌ 这是私密视频，无法下载", None
         elif "Sign in" in error or "login" in error.lower():
-            return False, "❌ 需要登录才能下载", None
+            return False, "❌ 需要登录才能下载此视频", None
         elif "HTTP Error 403" in error:
-            return False, "❌ 访问被拒绝，可能需要登录", None
+            return False, "❌ 访问被拒绝（403）", None
+        elif "Requested format is not available" in error:
+            # B站可能需要登录才能获取高清
+            if is_bilibili(ydl_opts.get('original_url', '')):
+                return False, "❌ B站需要登录才能下载\n\n_高清格式需要登录账号_", None
+            return False, "❌ 请求的格式不可用", None
+        elif "Unable to extract" in error:
+            return False, "❌ 无法解析视频信息\n\n_链接可能已失效_", None
         else:
-            return False, f"❌ 下载失败: {error[:100]}", None
+            return False, f"❌ 下载失败: {error[:80]}", None
             
     except Exception as e:
         logger.error(f"[下载] 出错: {e}")
