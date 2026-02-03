@@ -1,15 +1,22 @@
 """
-媒体下载器模块 - 使用 yt-dlp 下载视频
+媒体下载器模块 - 使用 yt-dlp Python API
 支持 YouTube、Bilibili、Twitter 等
 """
 import asyncio
 import logging
 import os
-import re
 import tempfile
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
+
+# 检查 yt-dlp 是否可用
+try:
+    import yt_dlp
+    YT_DLP_AVAILABLE = True
+except ImportError:
+    YT_DLP_AVAILABLE = False
+    logger.warning("yt-dlp 未安装，视频下载功能不可用")
 
 # 支持的网站列表
 SUPPORTED_SITES = {
@@ -39,112 +46,89 @@ def is_supported_url(url: str) -> bool:
     return get_site_name(url) is not None
 
 
-async def get_video_info(url: str) -> dict | None:
-    """获取视频信息（不下载）"""
-    try:
-        cmd = [
-            "yt-dlp",
-            "--no-download",
-            "--print", "%(title)s",
-            "--print", "%(duration)s", 
-            "--print", "%(filesize_approx)s",
-            url
-        ]
-        
-        process = await asyncio.create_subprocess_exec(
-            *cmd,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE
-        )
-        stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=30)
-        
-        if process.returncode == 0:
-            lines = stdout.decode().strip().split('\n')
-            if len(lines) >= 3:
-                title = lines[0][:100]  # 限制标题长度
-                duration = int(lines[1]) if lines[1].isdigit() else 0
-                filesize = int(lines[2]) if lines[2].isdigit() else 0
-                
-                return {
-                    "title": title,
-                    "duration": duration,
-                    "duration_str": f"{duration // 60}:{duration % 60:02d}" if duration else "未知",
-                    "filesize": filesize,
-                    "filesize_str": f"{filesize / 1024 / 1024:.1f}MB" if filesize else "未知",
-                }
-        else:
-            logger.error(f"获取视频信息失败: {stderr.decode()[:200]}")
-            
-    except asyncio.TimeoutError:
-        logger.error("获取视频信息超时")
-    except FileNotFoundError:
-        logger.error("yt-dlp 未安装")
-    except Exception as e:
-        logger.error(f"获取视频信息出错: {e}")
-    
-    return None
-
-
 async def download_video(url: str, max_size_mb: int = 50) -> tuple[bool, str, str | None]:
     """
-    下载视频
+    下载视频（使用 Python API）
     返回: (成功与否, 消息/错误, 文件路径)
     """
+    if not YT_DLP_AVAILABLE:
+        return False, "❌ yt-dlp 未安装\n\n请运行: `pip install yt-dlp`", None
+    
     temp_dir = tempfile.mkdtemp()
     output_template = os.path.join(temp_dir, "%(title).50s.%(ext)s")
     
+    # yt-dlp 配置
+    ydl_opts = {
+        'format': f'best[filesize<{max_size_mb}M]/bestvideo[filesize<{max_size_mb}M]+bestaudio/best',
+        'outtmpl': output_template,
+        'noplaylist': True,
+        'socket_timeout': 30,
+        'quiet': True,
+        'no_warnings': True,
+        'extract_flat': False,
+    }
+    
     try:
-        # yt-dlp 命令
-        cmd = [
-            "yt-dlp",
-            "-f", f"best[filesize<{max_size_mb}M]/bestvideo[filesize<{max_size_mb}M]+bestaudio/best",
-            "-o", output_template,
-            "--no-playlist",
-            "--max-filesize", f"{max_size_mb}M",
-            "--socket-timeout", "30",
-            url
-        ]
-        
         logger.info(f"[下载] 开始下载: {url}")
         
-        process = await asyncio.create_subprocess_exec(
-            *cmd,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE
-        )
+        # 在线程池中运行（避免阻塞）
+        loop = asyncio.get_event_loop()
+        result = await loop.run_in_executor(None, _download_sync, url, ydl_opts, temp_dir, max_size_mb)
+        return result
         
-        # 等待完成，超时 5 分钟
-        stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=300)
+    except Exception as e:
+        logger.error(f"[下载] 出错: {e}")
+        return False, f"❌ 下载出错: {str(e)[:100]}", None
+
+
+def _download_sync(url: str, ydl_opts: dict, temp_dir: str, max_size_mb: int) -> tuple[bool, str, str | None]:
+    """同步下载函数（在线程池中运行）"""
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            # 先获取信息检查大小
+            info = ydl.extract_info(url, download=False)
+            
+            if info is None:
+                return False, "❌ 无法获取视频信息", None
+            
+            # 检查文件大小
+            filesize = info.get('filesize') or info.get('filesize_approx') or 0
+            if filesize > max_size_mb * 1024 * 1024:
+                size_mb = filesize / 1024 / 1024
+                return False, f"❌ 文件太大 ({size_mb:.1f}MB)，超过 {max_size_mb}MB 限制", None
+            
+            # 下载
+            ydl.download([url])
         
-        if process.returncode == 0:
-            # 查找下载的文件
-            files = list(Path(temp_dir).glob("*"))
-            if files:
-                video_file = files[0]
-                file_size = video_file.stat().st_size / 1024 / 1024
-                
-                if file_size > max_size_mb:
-                    return False, f"❌ 文件太大 ({file_size:.1f}MB)，超过 {max_size_mb}MB 限制", None
-                
-                logger.info(f"[下载] 成功: {video_file.name} ({file_size:.1f}MB)")
-                return True, f"✅ 下载成功 ({file_size:.1f}MB)", str(video_file)
+        # 查找下载的文件
+        files = list(Path(temp_dir).glob("*"))
+        if files:
+            video_file = files[0]
+            file_size = video_file.stat().st_size / 1024 / 1024
+            
+            if file_size > max_size_mb:
+                return False, f"❌ 文件太大 ({file_size:.1f}MB)，超过 {max_size_mb}MB 限制", None
+            
+            logger.info(f"[下载] 成功: {video_file.name} ({file_size:.1f}MB)")
+            return True, f"✅ 下载成功 ({file_size:.1f}MB)", str(video_file)
         
-        error = stderr.decode()[:200]
-        logger.error(f"[下载] 失败: {error}")
+        return False, "❌ 下载完成但找不到文件", None
+        
+    except yt_dlp.utils.DownloadError as e:
+        error = str(e)
+        logger.error(f"[下载] 失败: {error[:200]}")
         
         if "Video unavailable" in error:
             return False, "❌ 视频不可用或已被删除", None
         elif "Private video" in error:
             return False, "❌ 这是私密视频，无法下载", None
-        elif "Sign in" in error:
+        elif "Sign in" in error or "login" in error.lower():
             return False, "❌ 需要登录才能下载", None
+        elif "HTTP Error 403" in error:
+            return False, "❌ 访问被拒绝，可能需要登录", None
         else:
             return False, f"❌ 下载失败: {error[:100]}", None
             
-    except asyncio.TimeoutError:
-        return False, "❌ 下载超时（超过5分钟）", None
-    except FileNotFoundError:
-        return False, "❌ yt-dlp 未安装\n\n请运行: `pip install yt-dlp`", None
     except Exception as e:
         logger.error(f"[下载] 出错: {e}")
         return False, f"❌ 下载出错: {str(e)[:100]}", None
