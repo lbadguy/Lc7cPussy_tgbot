@@ -40,7 +40,6 @@ logging.getLogger('apscheduler').setLevel(logging.WARNING)
 user_conversations = {}
 MAX_HISTORY = 10
 
-
 # ===== 常量和工具函数 =====
 
 # Bot 标识前缀
@@ -53,6 +52,42 @@ CHINA_TZ = timezone(timedelta(hours=8))
 def lc7c(text: str) -> str:
     """在消息前添加 Bot 标识前缀"""
     return BOT_PREFIX + text
+
+
+def clean_ai_response(text: str) -> str:
+    """
+    清理 AI 回复中的 Markdown 符号，让消息更易读
+    """
+    import re
+    
+    # 移除标题符号 (# ## ### 等)
+    text = re.sub(r'^#+\s*', '', text, flags=re.MULTILINE)
+    
+    # 移除粗体标记 **text** -> text
+    text = re.sub(r'\*\*(.+?)\*\*', r'\1', text)
+    
+    # 移除斜体标记 *text* 或 _text_ -> text
+    text = re.sub(r'\*(.+?)\*', r'\1', text)
+    text = re.sub(r'_(.+?)_', r'\1', text)
+    
+    # 移除代码块标记 ```code``` -> code
+    text = re.sub(r'```[\w]*\n?', '', text)
+    
+    # 移除行内代码 `code` -> code
+    text = re.sub(r'`(.+?)`', r'\1', text)
+    
+    # 列表符号美化 - item -> • item
+    text = re.sub(r'^[\-\*]\s+', '• ', text, flags=re.MULTILINE)
+    
+    # 数字列表保持原样 1. 2. 3.
+    
+    # 移除链接格式 [text](url) -> text
+    text = re.sub(r'\[(.+?)\]\(.+?\)', r'\1', text)
+    
+    # 移除多余的空行
+    text = re.sub(r'\n{3,}', '\n\n', text)
+    
+    return text.strip()
 
 
 def get_next_push_time(hour: int, minute: int = 0) -> str:
@@ -544,20 +579,23 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # 添加到历史
         history.append({"role": "assistant", "content": response})
         
+        # 清理 Markdown 符号
+        clean_response = clean_ai_response(response)
+        
         # 构建按钮
         keyboard = build_chat_keyboard()
         
-        # 发送回复（不使用 Markdown，避免格式问题）
-        if len(response) > 4000:
+        # 发送回复
+        if len(clean_response) > 4000:
             # 长消息分段发送，只在最后一段加按钮
-            parts = [response[i:i+4000] for i in range(0, len(response), 4000)]
+            parts = [clean_response[i:i+4000] for i in range(0, len(clean_response), 4000)]
             for i, part in enumerate(parts):
                 if i == len(parts) - 1:
                     await update.message.reply_text(lc7c(part), reply_markup=keyboard)
                 else:
                     await update.message.reply_text(lc7c(part))
         else:
-            await update.message.reply_text(lc7c(response), reply_markup=keyboard)
+            await update.message.reply_text(lc7c(clean_response), reply_markup=keyboard)
             
     except Exception as e:
         logger.error(f"AI 对话出错: {e}")
