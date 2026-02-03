@@ -103,16 +103,61 @@ def generate_search_links(image_url: str) -> dict:
     
     return {
         "google": f"https://lens.google.com/uploadbyurl?url={encoded_url}",
+        "google_old": f"https://www.google.com/searchbyimage?image_url={encoded_url}",
         "yandex": f"https://yandex.com/images/search?rpt=imageview&url={encoded_url}",
         "bing": f"https://www.bing.com/images/search?view=detailv2&iss=sbi&form=SBIVSP&sbisrc=UrlPaste&q=imgurl:{encoded_url}",
         "tineye": f"https://tineye.com/search?url={encoded_url}",
         "saucenao": f"https://saucenao.com/search.php?url={encoded_url}",
         "iqdb": f"https://iqdb.org/?url={encoded_url}",
+        "ascii2d": f"https://ascii2d.net/search/url/{encoded_url}",
     }
 
 
+def build_search_result(image_url: str) -> tuple[str, list]:
+    """
+    构建搜图结果（文本 + 按钮键盘）
+    返回: (消息文本, 按钮行列表)
+    """
+    links = generate_search_links(image_url)
+    
+    # 消息文本（简洁版）
+    text = (
+        "🔍 **以图搜图**\n\n"
+        "点击下方按钮搜索相似图片\n"
+        "⏰ _链接有效期约 1 小时_"
+    )
+    
+    # 按钮键盘布局（模仿你发的图片样式）
+    keyboard = [
+        # 第一行：Google
+        [
+            {"text": "Google Lens 🌐", "url": links["google"]},
+            {"text": "Google 旧版", "url": links["google_old"]},
+        ],
+        # 第二行：Yandex
+        [
+            {"text": "Yandex 🔵", "url": links["yandex"]},
+            {"text": "Bing 🟦", "url": links["bing"]},
+        ],
+        # 第三行：动漫搜图
+        [
+            {"text": "SauceNAO 🎨", "url": links["saucenao"]},
+            {"text": "ascii2d", "url": links["ascii2d"]},
+            {"text": "IQDB 📚", "url": links["iqdb"]},
+        ],
+        # 第四行：其他
+        [
+            {"text": "TinEye 👁", "url": links["tineye"]},
+            {"text": "📷 查看图片", "url": image_url},
+        ],
+    ]
+    
+    return text, keyboard
+
+
+# 保留旧函数兼容
 def format_search_result(image_url: str) -> str:
-    """格式化搜图结果消息"""
+    """格式化搜图结果消息（纯文本版，备用）"""
     links = generate_search_links(image_url)
     
     lines = [
@@ -127,7 +172,7 @@ def format_search_result(image_url: str) -> str:
         f"🎨 [SauceNAO]({links['saucenao']})",
         f"📚 [IQDB]({links['iqdb']})",
         "",
-        f"_图片链接: [点击查看]({image_url})_"
+        "⏰ _链接有效期约 1 小时_"
     ]
     
     return "\n".join(lines)
@@ -155,5 +200,5 @@ async def search_image(image_bytes: bytes) -> tuple[bool, str]:
         logger.error("[搜图] 所有图床都失败了")
         return False, "❌ 图片上传失败\n\n可能原因：\n• 网络连接问题\n• 需要配置代理\n\n请检查 Termux 代理设置"
     
-    result = format_search_result(image_url)
-    return True, result
+    # 成功时返回图片 URL
+    return True, image_url

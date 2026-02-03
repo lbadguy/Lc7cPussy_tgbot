@@ -274,12 +274,28 @@ async def process_image_search(update: Update, photo_message):
         # 下载图片
         image_bytes = await file.download_as_bytearray()
         
-        # 搜索
+        # 上传并获取链接
         success, result = await image_search.search_image(bytes(image_bytes))
         
         if success:
+            # 使用新的按钮格式
+            text, keyboard_data = image_search.build_search_result(result)
+            
+            # 构建 InlineKeyboardMarkup
+            keyboard = []
+            for row in keyboard_data:
+                keyboard.append([
+                    InlineKeyboardButton(btn["text"], url=btn["url"]) 
+                    for btn in row
+                ])
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
             logger.info(f"[搜图] 用户 {update.effective_user.id} 搜索成功")
-            await update.message.reply_text(lc7c(result), parse_mode='Markdown', disable_web_page_preview=True)
+            await update.message.reply_text(
+                lc7c(text), 
+                parse_mode='Markdown', 
+                reply_markup=reply_markup
+            )
         else:
             await update.message.reply_text(lc7c(result))
             
