@@ -6,9 +6,8 @@
 2. 频道汇总 - 每日 20:00 推送 @zaihuapd 消息汇总
 3. AI 对话 - /chat 指令进入对话模式（需要反代服务）
 """
-import asyncio
 import logging
-from datetime import time as dt_time, datetime, timedelta, timezone
+from datetime import time as dt_time
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
@@ -22,90 +21,19 @@ from telegram.ext import (
 
 import config
 from modules import weather, channel, chat, database, image_search, downloader
+from modules.utils import lc7c, clean_ai_response, get_next_push_time, CHINA_TZ
 
 # 配置日志
-logging.basicConfig(
-    format='%(asctime)s - %(message)s',
-    level=logging.INFO
-)
+logging.basicConfig(format='%(asctime)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# 过滤掉 httpx 和 httpcore 的 INFO 日志（HTTP 200 OK 那些）
-logging.getLogger('httpx').setLevel(logging.WARNING)
-logging.getLogger('httpcore').setLevel(logging.WARNING)
-logging.getLogger('telegram.ext').setLevel(logging.WARNING)
-logging.getLogger('apscheduler').setLevel(logging.WARNING)
+# 过滤掉不必要的日志
+for name in ['httpx', 'httpcore', 'telegram.ext', 'apscheduler']:
+    logging.getLogger(name).setLevel(logging.WARNING)
 
 # 用户对话历史（内存存储，限制长度）
 user_conversations = {}
 MAX_HISTORY = 10
-
-# ===== 常量和工具函数 =====
-
-# Bot 标识前缀
-BOT_PREFIX = "[ LC7c ]\n\n"
-
-# 中国时区 UTC+8
-CHINA_TZ = timezone(timedelta(hours=8))
-
-
-def lc7c(text: str) -> str:
-    """在消息前添加 Bot 标识前缀"""
-    return BOT_PREFIX + text
-
-
-def clean_ai_response(text: str) -> str:
-    """
-    清理 AI 回复中的 Markdown 符号，让消息更易读
-    """
-    import re
-    
-    # 移除标题符号 (# ## ### 等)
-    text = re.sub(r'^#+\s*', '', text, flags=re.MULTILINE)
-    
-    # 移除粗体标记 **text** -> text
-    text = re.sub(r'\*\*(.+?)\*\*', r'\1', text)
-    
-    # 移除斜体标记 *text* 或 _text_ -> text
-    text = re.sub(r'\*(.+?)\*', r'\1', text)
-    text = re.sub(r'_(.+?)_', r'\1', text)
-    
-    # 移除代码块标记 ```code``` -> code
-    text = re.sub(r'```[\w]*\n?', '', text)
-    
-    # 移除行内代码 `code` -> code
-    text = re.sub(r'`(.+?)`', r'\1', text)
-    
-    # 列表符号美化 - item -> • item
-    text = re.sub(r'^[\-\*]\s+', '• ', text, flags=re.MULTILINE)
-    
-    # 数字列表保持原样 1. 2. 3.
-    
-    # 移除链接格式 [text](url) -> text
-    text = re.sub(r'\[(.+?)\]\(.+?\)', r'\1', text)
-    
-    # 移除多余的空行
-    text = re.sub(r'\n{3,}', '\n\n', text)
-    
-    return text.strip()
-
-
-def get_next_push_time(hour: int, minute: int = 0) -> str:
-    """计算距离下次推送的时间"""
-    now = datetime.now(CHINA_TZ)
-    target = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
-    
-    if now >= target:
-        target += timedelta(days=1)
-    
-    diff = target - now
-    hours = int(diff.total_seconds() // 3600)
-    minutes = int((diff.total_seconds() % 3600) // 60)
-    
-    if hours > 0:
-        return f"{hours}小时{minutes}分钟"
-    else:
-        return f"{minutes}分钟"
 
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
