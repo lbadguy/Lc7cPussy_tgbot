@@ -57,16 +57,20 @@ async def download_video(url: str, max_size_mb: int = 50) -> tuple[bool, str, st
     temp_dir = tempfile.mkdtemp()
     output_template = os.path.join(temp_dir, "%(title).50s.%(ext)s")
     
-    # yt-dlp 配置 - 简化格式选择
+    # yt-dlp 配置
+    # 格式选择：最高画质视频+最佳音频，或单一最佳格式
+    # bestvideo*+bestaudio* 表示可以跨容器合并
     ydl_opts = {
-        'format': 'best',  # 直接选最佳格式，下载后再检查大小
+        'format': 'bestvideo*+bestaudio*/best',
         'outtmpl': output_template,
         'noplaylist': True,
         'socket_timeout': 30,
         'quiet': True,
         'no_warnings': True,
         'extract_flat': False,
-        'merge_output_format': 'mp4',  # 合并为 mp4
+        'merge_output_format': 'mp4',
+        # 避免某些地区限制
+        'geo_bypass': True,
     }
     
     try:
