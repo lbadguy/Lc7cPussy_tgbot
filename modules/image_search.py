@@ -127,28 +127,27 @@ def build_search_result(image_url: str) -> tuple[str, list]:
         "⏰ _链接有效期约 1 小时_"
     )
     
-    # 按钮键盘布局（模仿你发的图片样式）
+    # 按钮键盘布局
     keyboard = [
         # 第一行：Google
         [
-            {"text": "Google Lens 🌐", "url": links["google"]},
+            {"text": "Google Lens", "url": links["google"]},
             {"text": "Google 旧版", "url": links["google_old"]},
         ],
-        # 第二行：Yandex
+        # 第二行：Yandex & Bing
         [
-            {"text": "Yandex 🔵", "url": links["yandex"]},
-            {"text": "Bing 🟦", "url": links["bing"]},
+            {"text": "Yandex", "url": links["yandex"]},
+            {"text": "Bing", "url": links["bing"]},
         ],
-        # 第三行：动漫搜图
+        # 第三行：动漫 + TinEye
         [
-            {"text": "SauceNAO 🎨", "url": links["saucenao"]},
-            {"text": "ascii2d", "url": links["ascii2d"]},
-            {"text": "IQDB 📚", "url": links["iqdb"]},
+            {"text": "SauceNAO", "url": links["saucenao"]},
+            {"text": "IQDB", "url": links["iqdb"]},
+            {"text": "TinEye", "url": links["tineye"]},
         ],
-        # 第四行：其他
+        # 第四行：查看图片
         [
-            {"text": "TinEye 👁", "url": links["tineye"]},
-            {"text": "📷 查看图片", "url": image_url},
+            {"text": "📷 查看原图", "url": image_url},
         ],
     ]
     

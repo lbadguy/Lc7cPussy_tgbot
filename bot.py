@@ -21,7 +21,7 @@ from telegram.ext import (
 )
 
 import config
-from modules import weather, channel, chat, database, image_search
+from modules import weather, channel, chat, database, image_search, downloader
 
 # 配置日志
 logging.basicConfig(
@@ -127,8 +127,9 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 • `/news 30` - 最近30条
 • `/news search 关键词` - 搜索
 
-**以图搜图**
-• `/image` - 发送图片搜图
+**图片工具**
+• `/image` - 以图搜图
+• `/dl 链接` - 下载视频
 
 **AI 对话**
 • `/chat` - 开启对话
@@ -302,6 +303,58 @@ async def process_image_search(update: Update, photo_message):
     except Exception as e:
         logger.error(f"搜图失败: {e}")
         await update.message.reply_text(lc7c(f"❌ 搜图失败: {str(e)[:100]}"))
+
+
+async def download_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """处理 /dl 命令 - 下载视频"""
+    if not context.args:
+        supported_sites = "\n".join([f"• {name}" for name in set(downloader.SUPPORTED_SITES.values())])
+        await update.message.reply_text(lc7c(
+            "📥 **视频下载器**\n\n"
+            "用法: `/dl <视频链接>`\n\n"
+            "**支持的网站：**\n"
+            f"{supported_sites}\n\n"
+            "⚠️ 文件限制 50MB"
+        ), parse_mode='Markdown')
+        return
+    
+    url = context.args[0]
+    
+    # 检查是否支持
+    site_name = downloader.get_site_name(url)
+    if not site_name:
+        await update.message.reply_text(lc7c("❌ 不支持的链接\n\n发送 /dl 查看支持的网站"))
+        return
+    
+    # 发送处理中消息
+    status_msg = await update.message.reply_text(f"📥 正在从 {site_name} 下载...\n⏳ 请稍候，可能需要几分钟")
+    
+    try:
+        # 下载
+        success, message, file_path = await downloader.download_video(url)
+        
+        if success and file_path:
+            # 发送视频
+            await status_msg.edit_text(f"📤 正在上传视频...")
+            
+            with open(file_path, 'rb') as video_file:
+                await update.message.reply_video(
+                    video=video_file,
+                    caption=lc7c(f"✅ 来自 {site_name}\n\n{message}"),
+                    supports_streaming=True
+                )
+            
+            await status_msg.delete()
+            
+            # 清理临时文件
+            downloader.cleanup_file(file_path)
+            logger.info(f"[下载] 用户 {update.effective_user.id} 下载成功: {url}")
+        else:
+            await status_msg.edit_text(lc7c(message))
+            
+    except Exception as e:
+        logger.error(f"下载出错: {e}")
+        await status_msg.edit_text(lc7c(f"❌ 下载出错: {str(e)[:100]}"))
 
 
 # 缓存消息列表（用于翻页）
@@ -560,6 +613,7 @@ def main():
     application.add_handler(CommandHandler("test", test_command))
     application.add_handler(CommandHandler("news", news_command))
     application.add_handler(CommandHandler("image", image_command))
+    application.add_handler(CommandHandler("dl", download_command))
     
     # 添加图片消息处理器（用于 /image 搜图）
     application.add_handler(MessageHandler(filters.PHOTO, handle_photo))
