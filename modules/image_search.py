@@ -5,9 +5,13 @@
 import aiohttp
 import logging
 import base64
-from io import BytesIO
+import os
+from urllib.parse import quote
 
 logger = logging.getLogger(__name__)
+
+# 获取代理设置（从环境变量）
+PROXY = os.environ.get('HTTP_PROXY') or os.environ.get('http_proxy') or os.environ.get('HTTPS_PROXY')
 
 
 async def upload_to_telegraph(image_bytes: bytes) -> str | None:
@@ -16,14 +20,27 @@ async def upload_to_telegraph(image_bytes: bytes) -> str | None:
         form = aiohttp.FormData()
         form.add_field('file', image_bytes, filename='image.jpg', content_type='image/jpeg')
         
-        async with aiohttp.ClientSession() as session:
-            async with session.post('https://telegra.ph/upload', data=form, timeout=30) as resp:
+        connector = aiohttp.TCPConnector(ssl=False) if PROXY else None
+        timeout = aiohttp.ClientTimeout(total=15)
+        
+        async with aiohttp.ClientSession(connector=connector, timeout=timeout) as session:
+            async with session.post('https://telegra.ph/upload', data=form, proxy=PROXY) as resp:
+                logger.info(f"[Telegraph] 响应状态: {resp.status}")
                 if resp.status == 200:
                     data = await resp.json()
                     if data and len(data) > 0 and 'src' in data[0]:
-                        return 'https://telegra.ph' + data[0]['src']
+                        url = 'https://telegra.ph' + data[0]['src']
+                        logger.info(f"[Telegraph] 上传成功: {url}")
+                        return url
+                    else:
+                        logger.warning(f"[Telegraph] 响应格式异常: {data}")
+                else:
+                    text = await resp.text()
+                    logger.warning(f"[Telegraph] 上传失败: {resp.status} - {text[:100]}")
+    except aiohttp.ClientConnectorError as e:
+        logger.error(f"[Telegraph] 连接失败（可能需要代理）: {e}")
     except Exception as e:
-        logger.error(f"上传图片到 Telegraph 失败: {e}")
+        logger.error(f"[Telegraph] 上传失败: {type(e).__name__}: {e}")
     return None
 
 
@@ -34,21 +51,54 @@ async def upload_to_catbox(image_bytes: bytes) -> str | None:
         form.add_field('reqtype', 'fileupload')
         form.add_field('fileToUpload', image_bytes, filename='image.jpg', content_type='image/jpeg')
         
-        async with aiohttp.ClientSession() as session:
-            async with session.post('https://catbox.moe/user/api.php', data=form, timeout=30) as resp:
+        timeout = aiohttp.ClientTimeout(total=15)
+        
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with session.post('https://catbox.moe/user/api.php', data=form, proxy=PROXY) as resp:
+                logger.info(f"[Catbox] 响应状态: {resp.status}")
                 if resp.status == 200:
                     url = await resp.text()
                     if url.startswith('https://'):
+                        logger.info(f"[Catbox] 上传成功: {url.strip()}")
                         return url.strip()
+                    else:
+                        logger.warning(f"[Catbox] 响应异常: {url[:100]}")
+    except aiohttp.ClientConnectorError as e:
+        logger.error(f"[Catbox] 连接失败（可能需要代理）: {e}")
     except Exception as e:
-        logger.error(f"上传图片到 Catbox 失败: {e}")
+        logger.error(f"[Catbox] 上传失败: {type(e).__name__}: {e}")
+    return None
+
+
+async def upload_to_imgbb(image_bytes: bytes) -> str | None:
+    """上传到 ImgBB（免费图床，备用）"""
+    try:
+        # ImgBB 免费 API（无需 key 的公共端点）
+        b64 = base64.b64encode(image_bytes).decode('utf-8')
+        
+        form = aiohttp.FormData()
+        form.add_field('image', b64)
+        
+        timeout = aiohttp.ClientTimeout(total=15)
+        
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            # 使用免费的 freeimage.host
+            async with session.post('https://freeimage.host/api/1/upload?key=6d207e02198a847aa98d0a2a901485a5', 
+                                   data=form, proxy=PROXY) as resp:
+                logger.info(f"[FreeImage] 响应状态: {resp.status}")
+                if resp.status == 200:
+                    data = await resp.json()
+                    if data.get('success') and data.get('image', {}).get('url'):
+                        url = data['image']['url']
+                        logger.info(f"[FreeImage] 上传成功: {url}")
+                        return url
+    except Exception as e:
+        logger.error(f"[FreeImage] 上传失败: {type(e).__name__}: {e}")
     return None
 
 
 def generate_search_links(image_url: str) -> dict:
     """生成各搜索引擎的搜图链接"""
-    from urllib.parse import quote
-    
     encoded_url = quote(image_url, safe='')
     
     return {
@@ -77,7 +127,7 @@ def format_search_result(image_url: str) -> str:
         f"🎨 [SauceNAO]({links['saucenao']})",
         f"📚 [IQDB]({links['iqdb']})",
         "",
-        f"_图片已上传至: [点击查看]({image_url})_"
+        f"_图片链接: [点击查看]({image_url})_"
     ]
     
     return "\n".join(lines)
@@ -88,15 +138,22 @@ async def search_image(image_bytes: bytes) -> tuple[bool, str]:
     主函数：上传图片并生成搜索链接
     返回: (成功与否, 结果消息)
     """
-    # 尝试上传到 Telegraph
+    logger.info(f"[搜图] 开始上传图片，大小: {len(image_bytes)} bytes, 代理: {PROXY or '无'}")
+    
+    # 依次尝试多个图床
     image_url = await upload_to_telegraph(image_bytes)
     
-    # 如果失败，尝试 Catbox
     if not image_url:
+        logger.info("[搜图] Telegraph 失败，尝试 Catbox...")
         image_url = await upload_to_catbox(image_bytes)
     
     if not image_url:
-        return False, "❌ 图片上传失败，请稍后重试"
+        logger.info("[搜图] Catbox 失败，尝试 FreeImage...")
+        image_url = await upload_to_imgbb(image_bytes)
+    
+    if not image_url:
+        logger.error("[搜图] 所有图床都失败了")
+        return False, "❌ 图片上传失败\n\n可能原因：\n• 网络连接问题\n• 需要配置代理\n\n请检查 Termux 代理设置"
     
     result = format_search_result(image_url)
     return True, result
