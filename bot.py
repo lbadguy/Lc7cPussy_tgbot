@@ -21,7 +21,7 @@ from telegram.ext import (
 )
 
 import config
-from modules import weather, channel, chat, database
+from modules import weather, channel, chat, database, image_search
 
 # 配置日志
 logging.basicConfig(
@@ -122,12 +122,18 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 • `/weather` - 查看天气
 • `/weather 北京` - 切换城市
 
+**频道新闻**
+• `/news` - 今日新闻
+• `/news 30` - 最近30条
+• `/news search 关键词` - 搜索
+
+**以图搜图**
+• `/image` - 发送图片搜图
+
 **AI 对话**
 • `/chat` - 开启对话
 • `/chat off` - 关闭对话
-• `/model` - 查看模型
-• `/model gemini-3-flash` - 切换模型
-• `/test` - 测试连接
+• `/model` - 查看/切换模型
 
 **其他**
 • `/start` - 重新开始
@@ -212,6 +218,74 @@ async def test_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     success, message = await chat.test_connection()
     await update.message.reply_text(lc7c(message))
+
+# 等待搜图的用户列表
+waiting_for_image = set()
+
+async def image_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """处理 /image 命令 - 以图搜图"""
+    user_id = update.effective_user.id
+    
+    # 检查是否回复了一张图片
+    if update.message.reply_to_message and update.message.reply_to_message.photo:
+        # 用户回复了一张图片，直接处理
+        await process_image_search(update, update.message.reply_to_message)
+        return
+    
+    # 标记用户等待发送图片
+    waiting_for_image.add(user_id)
+    
+    await update.message.reply_text(lc7c(
+        "📷 **以图搜图**\n\n"
+        "请发送一张图片，我将为你生成搜图链接\n\n"
+        "支持的搜索引擎：\n"
+        "• Google Lens\n"
+        "• Yandex Images\n"
+        "• Bing Visual\n"
+        "• TinEye\n"
+        "• SauceNAO (动漫)\n"
+        "• IQDB (动漫)"
+    ), parse_mode='Markdown')
+
+
+async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """处理图片消息"""
+    user_id = update.effective_user.id
+    
+    # 检查用户是否在等待发送图片
+    if user_id not in waiting_for_image:
+        return  # 不处理非搜图请求的图片
+    
+    # 移除等待状态
+    waiting_for_image.discard(user_id)
+    
+    await process_image_search(update, update.message)
+
+
+async def process_image_search(update: Update, photo_message):
+    """处理图片搜索"""
+    await update.message.reply_text("🔍 正在处理图片...")
+    
+    try:
+        # 获取最大分辨率的图片
+        photo = photo_message.photo[-1]
+        file = await photo.get_file()
+        
+        # 下载图片
+        image_bytes = await file.download_as_bytearray()
+        
+        # 搜索
+        success, result = await image_search.search_image(bytes(image_bytes))
+        
+        if success:
+            logger.info(f"[搜图] 用户 {update.effective_user.id} 搜索成功")
+            await update.message.reply_text(lc7c(result), parse_mode='Markdown', disable_web_page_preview=True)
+        else:
+            await update.message.reply_text(lc7c(result))
+            
+    except Exception as e:
+        logger.error(f"搜图失败: {e}")
+        await update.message.reply_text(lc7c(f"❌ 搜图失败: {str(e)[:100]}"))
 
 
 # 缓存消息列表（用于翻页）
@@ -469,6 +543,10 @@ def main():
     application.add_handler(CommandHandler("model", model_command))
     application.add_handler(CommandHandler("test", test_command))
     application.add_handler(CommandHandler("news", news_command))
+    application.add_handler(CommandHandler("image", image_command))
+    
+    # 添加图片消息处理器（用于 /image 搜图）
+    application.add_handler(MessageHandler(filters.PHOTO, handle_photo))
     
     # 添加回调查询处理器（翻页按钮）
     application.add_handler(CallbackQueryHandler(news_callback, pattern="^news_"))
