@@ -187,36 +187,22 @@ async def chat_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     settings = database.get_user_settings(user_id)
     
-    # 构建模型选择按钮
-    keyboard = build_chat_keyboard(settings["model"])
+    # 构建按钮
+    keyboard = build_chat_keyboard()
     
     await update.message.reply_text(
         lc7c(f"🟢 已进入 AI 对话模式\n"
-        f"当前模型: `{settings['model']}`\n\n"
+        f"当前模型: {settings['model']}\n"
+        f"使用 /model 切换模型\n\n"
         f"直接发送消息开始对话"),
-        parse_mode='Markdown',
         reply_markup=keyboard
     )
 
-
-def build_chat_keyboard(current_model: str = None) -> InlineKeyboardMarkup:
-    """构建 Chat 功能的按钮键盘"""
-    buttons = []
-    
-    # 模型选择按钮（每行1个，显示完整名称）
-    for i, model in enumerate(config.AVAILABLE_MODELS):
-        # 当前模型加 ✓ 标记
-        if model == current_model:
-            label = f"✓ {model}"
-        else:
-            label = model
-        # 使用索引作为 callback_data，避免太长
-        buttons.append([InlineKeyboardButton(label, callback_data=f"cm_{i}")])
-    
-    # 添加退出按钮
-    buttons.append([InlineKeyboardButton("🔴 退出对话", callback_data="chat_off")])
-    
-    return InlineKeyboardMarkup(buttons)
+def build_chat_keyboard() -> InlineKeyboardMarkup:
+    """构建 Chat 功能的按钮键盘（只有退出按钮）"""
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("🔴 退出对话", callback_data="chat_off")]
+    ])
 
 
 async def chat_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -234,24 +220,6 @@ async def chat_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             del user_conversations[user_id]
         await query.edit_message_text(lc7c("🔴 已退出 AI 对话模式"))
         return
-    
-    # 切换模型 (格式: cm_索引)
-    if data.startswith("cm_"):
-        try:
-            index = int(data.replace("cm_", ""))
-            if 0 <= index < len(config.AVAILABLE_MODELS):
-                model = config.AVAILABLE_MODELS[index]
-                database.update_model(user_id, model)
-                keyboard = build_chat_keyboard(model)
-                await query.edit_message_text(
-                    lc7c(f"✅ 已切换模型\n当前: `{model}`\n\n直接发送消息开始对话"),
-                    parse_mode='Markdown',
-                    reply_markup=keyboard
-                )
-            else:
-                await query.answer("模型索引无效", show_alert=True)
-        except ValueError:
-            await query.answer("无效的回调数据", show_alert=True)
 
 
 async def model_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -577,7 +545,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         history.append({"role": "assistant", "content": response})
         
         # 构建按钮
-        keyboard = build_chat_keyboard(settings["model"])
+        keyboard = build_chat_keyboard()
         
         # 发送回复（不使用 Markdown，避免格式问题）
         if len(response) > 4000:
@@ -687,7 +655,7 @@ def main():
     
     # 添加回调查询处理器
     application.add_handler(CallbackQueryHandler(news_callback, pattern="^news_"))
-    application.add_handler(CallbackQueryHandler(chat_callback, pattern="^(cm_|chat_off)"))
+    application.add_handler(CallbackQueryHandler(chat_callback, pattern="^chat_off$"))
     
     # 添加消息处理器
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
