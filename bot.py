@@ -20,7 +20,7 @@ from telegram.ext import (
 )
 
 import config
-from modules import weather, channel, chat, database, image_search, downloader
+from modules import weather, channel, chat, database, image_search, downloader, monitor
 from modules.utils import lc7c, clean_ai_response, get_next_push_time, CHINA_TZ
 
 # 配置日志
@@ -209,6 +209,18 @@ async def test_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     success, message = await chat.test_connection()
     await update.message.reply_text(lc7c(message))
+
+
+async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """处理 /status 命令 - 手机状态（隐藏命令）"""
+    status_text = monitor.get_status_text()
+    await update.message.reply_text(lc7c(status_text, markdown=True), parse_mode='Markdown')
+
+
+async def net_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """处理 /net 命令 - 流量统计（隐藏命令）"""
+    net_text = monitor.get_net_text()
+    await update.message.reply_text(lc7c(net_text, markdown=True), parse_mode='Markdown')
 
 # 等待搜图的用户列表
 waiting_for_image = set()
@@ -586,7 +598,28 @@ async def post_init(application: Application):
     # 初始化 AI 客户端
     chat.init_openai_client()
     logger.info("AI 客户端已初始化")
-
+    
+    # 初始化手机监控（仅 Termux 环境）
+    if monitor.IS_TERMUX:
+        monitor.init_monitor()
+        
+        # 创建发送警报的函数
+        async def send_monitor_alert(message: str):
+            users = database.get_subscribed_users()
+            for user_id in users:
+                try:
+                    await application.bot.send_message(
+                        chat_id=user_id,
+                        text=lc7c(message, markdown=True),
+                        parse_mode='Markdown'
+                    )
+                except Exception as e:
+                    logger.error(f"发送监控警报失败: {e}")
+        
+        # 启动监控循环
+        import asyncio
+        asyncio.create_task(monitor.monitor_loop(send_monitor_alert))
+        logger.info("手机监控已启动")
 
 async def post_shutdown(application: Application):
     """应用关闭时的回调"""
@@ -615,6 +648,9 @@ def main():
     application.add_handler(CommandHandler("news", news_command))
     application.add_handler(CommandHandler("image", image_command))
     application.add_handler(CommandHandler("dl", download_command))
+    # 隐藏命令（不在 /help 显示）
+    application.add_handler(CommandHandler("status", status_command))
+    application.add_handler(CommandHandler("net", net_command))
     
     # 添加图片消息处理器（用于 /image 搜图）
     application.add_handler(MessageHandler(filters.PHOTO, handle_photo))
