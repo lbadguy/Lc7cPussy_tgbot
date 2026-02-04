@@ -8,12 +8,21 @@ from datetime import datetime, timedelta, timezone
 CHINA_TZ = timezone(timedelta(hours=8))
 
 # Bot 标识前缀
+# 普通版本
 BOT_PREFIX = "[ LC7c ]\n\n"
+# Markdown 转义版本（方括号需要转义）
+BOT_PREFIX_MD = "\\[ LC7c \\]\n\n"
 
 
-def lc7c(text: str) -> str:
-    """在消息前添加 Bot 标识前缀"""
-    return BOT_PREFIX + text
+def lc7c(text: str, markdown: bool = False) -> str:
+    """在消息前添加 Bot 标识前缀
+    
+    Args:
+        text: 消息内容
+        markdown: 是否使用 Markdown 解析（需要转义方括号）
+    """
+    prefix = BOT_PREFIX_MD if markdown else BOT_PREFIX
+    return prefix + text
 
 
 def clean_ai_response(text: str) -> str:
