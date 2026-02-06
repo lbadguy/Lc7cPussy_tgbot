@@ -73,7 +73,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 📰 新闻汇总: 每日 20:00
     └ 下次推送: {next_news}
 """
-    await update.message.reply_text(lc7c(welcome, markdown=True), parse_mode='Markdown')
+    await update.message.reply_text(lc7c(welcome), parse_mode='Markdown')
 
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -103,7 +103,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 • `/start` - 重新开始
 • `/help` - 显示帮助
 """
-    await update.message.reply_text(lc7c(help_text, markdown=True), parse_mode='Markdown')
+    await update.message.reply_text(lc7c(help_text), parse_mode='Markdown')
 
 
 async def weather_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -121,7 +121,7 @@ async def weather_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(f"✅ 城市已更新为: {city_info['name']}")
             # 显示新城市天气
             report = await weather.get_weather_report(city_info["name"])
-            await update.message.reply_text(lc7c(report, markdown=True), parse_mode='Markdown')
+            await update.message.reply_text(lc7c(report), parse_mode='Markdown')
         else:
             await update.message.reply_text(lc7c(f"❌ 未找到城市: {new_city}"))
     else:
@@ -129,7 +129,7 @@ async def weather_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         city = settings["city"]
         await update.message.reply_text(f"🔍 正在获取 {city} 的天气...")
         report = await weather.get_weather_report(city)
-        await update.message.reply_text(lc7c(report, markdown=True), parse_mode='Markdown')
+        await update.message.reply_text(lc7c(report), parse_mode='Markdown')
 
 
 async def chat_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -193,14 +193,14 @@ async def model_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         new_model = context.args[0]
         if chat.is_valid_model(new_model):
             database.update_user_model(user_id, new_model)
-            await update.message.reply_text(lc7c(f"✅ 模型已切换为: `{new_model}`", markdown=True), parse_mode='Markdown')
+            await update.message.reply_text(lc7c(f"✅ 模型已切换为: `{new_model}`"), parse_mode='Markdown')
         else:
             await update.message.reply_text(
                 lc7c(f"❌ 无效的模型名称: {new_model}\n\n" + chat.get_model_list()),
                 parse_mode='Markdown'
             )
     else:
-        await update.message.reply_text(lc7c(chat.get_model_list(), markdown=True), parse_mode='Markdown')
+        await update.message.reply_text(lc7c(chat.get_model_list()), parse_mode='Markdown')
 
 
 async def test_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -214,13 +214,13 @@ async def test_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """处理 /status 命令 - 手机状态（隐藏命令）"""
     status_text = monitor.get_status_text()
-    await update.message.reply_text(lc7c(status_text, markdown=True), parse_mode='Markdown')
+    await update.message.reply_text(lc7c(status_text), parse_mode='Markdown')
 
 
 async def net_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """处理 /net 命令 - 流量统计（隐藏命令）"""
     net_text = monitor.get_net_text()
-    await update.message.reply_text(lc7c(net_text, markdown=True), parse_mode='Markdown')
+    await update.message.reply_text(lc7c(net_text), parse_mode='Markdown')
 
 # 等待搜图的用户列表
 waiting_for_image = set()
@@ -388,7 +388,7 @@ async def news_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         text = channel.format_messages_page(messages, 1, total_pages, f"搜索: {keyword}")
         
         keyboard = _build_page_keyboard(1, total_pages)
-        await update.message.reply_text(lc7c(text, markdown=True), parse_mode='Markdown', reply_markup=keyboard, disable_web_page_preview=True)
+        await update.message.reply_text(lc7c(text), parse_mode='Markdown', reply_markup=keyboard, disable_web_page_preview=True)
         return
     
     # /news 数字 - 获取最近N条消息
@@ -402,7 +402,7 @@ async def news_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         text = channel.format_messages_page(messages, 1, total_pages, f"最近 {limit} 条消息")
         
         keyboard = _build_page_keyboard(1, total_pages)
-        await update.message.reply_text(lc7c(text, markdown=True), parse_mode='Markdown', reply_markup=keyboard, disable_web_page_preview=True)
+        await update.message.reply_text(lc7c(text), parse_mode='Markdown', reply_markup=keyboard, disable_web_page_preview=True)
         return
     
     # /news - 今日消息
@@ -410,7 +410,7 @@ async def news_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     messages = await channel.get_messages(today_only=True)
     if not messages:
-        await update.message.reply_text(lc7c("📭 今日该频道暂无新消息\n\n💡 试试 `/news 30` 查看最近30条消息", markdown=True), parse_mode='Markdown')
+        await update.message.reply_text(lc7c("📭 今日该频道暂无新消息\n\n💡 试试 `/news 30` 查看最近30条消息"), parse_mode='Markdown')
         return
     
     news_cache[user_id] = {"messages": messages, "type": "today"}
@@ -419,7 +419,7 @@ async def news_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     keyboard = _build_page_keyboard(1, total_pages)
     logger.info(f"[频道] 获取到 {len(messages)} 条消息")
-    await update.message.reply_text(lc7c(text, markdown=True), parse_mode='Markdown', reply_markup=keyboard, disable_web_page_preview=True)
+    await update.message.reply_text(lc7c(text), parse_mode='Markdown', reply_markup=keyboard, disable_web_page_preview=True)
 
 
 def _build_page_keyboard(current_page: int, total_pages: int):
@@ -476,7 +476,7 @@ async def news_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = channel.format_messages_page(messages, page, total_pages, title)
     keyboard = _build_page_keyboard(page, total_pages)
     
-    await query.edit_message_text(lc7c(text, markdown=True), parse_mode='Markdown', reply_markup=keyboard, disable_web_page_preview=True)
+    await query.edit_message_text(lc7c(text), parse_mode='Markdown', reply_markup=keyboard, disable_web_page_preview=True)
 
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -557,7 +557,7 @@ async def scheduled_weather_push(context: ContextTypes.DEFAULT_TYPE):
         try:
             settings = database.get_user_settings(user_id)
             report = await weather.get_weather_report(settings["city"])
-            await context.bot.send_message(chat_id=user_id, text=lc7c(report, markdown=True), parse_mode='Markdown')
+            await context.bot.send_message(chat_id=user_id, text=lc7c(report), parse_mode='Markdown')
         except Exception as e:
             logger.error(f"推送天气给用户 {user_id} 失败: {e}")
 
@@ -577,7 +577,7 @@ async def scheduled_channel_summary(context: ContextTypes.DEFAULT_TYPE):
         users = database.get_subscribed_users()
         for user_id in users:
             try:
-                await context.bot.send_message(chat_id=user_id, text=lc7c(summary, markdown=True), parse_mode='Markdown')
+                await context.bot.send_message(chat_id=user_id, text=lc7c(summary), parse_mode='Markdown')
             except Exception as e:
                 logger.error(f"推送汇总给用户 {user_id} 失败: {e}")
     except Exception as e:
@@ -610,7 +610,7 @@ async def post_init(application: Application):
                 try:
                     await application.bot.send_message(
                         chat_id=user_id,
-                        text=lc7c(message, markdown=True),
+                        text=lc7c(message),
                         parse_mode='Markdown'
                     )
                 except Exception as e:
