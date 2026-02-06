@@ -40,8 +40,15 @@ def init_telethon_client():
     return telethon_client
 
 
-async def get_messages(channel_username: str = None, limit: int = 50, today_only: bool = True) -> list[dict]:
-    """获取频道消息"""
+async def get_messages(channel_username: str = None, limit: int = 50, today_only: bool = True, has_title: bool = True) -> list[dict]:
+    """获取频道消息
+    
+    Args:
+        channel_username: 频道用户名
+        limit: 获取消息数量限制
+        today_only: 是否只获取今日消息
+        has_title: 频道消息是否有标题行（False时截取前50字符作为摘要）
+    """
     if not telethon_client:
         logger.error("Telethon 客户端未初始化")
         return []
@@ -61,12 +68,21 @@ async def get_messages(channel_username: str = None, limit: int = 50, today_only
             if today_only and msg_date < today_start:
                 break
             
-            # 提取标题（取第一行或前60字符）
+            # 提取标题
             text = message.text.strip()
-            first_line = text.split('\n')[0]
-            title = first_line[:60]
-            if len(title) < len(first_line):
-                title += "..."
+            if has_title:
+                # 有标题的频道：取第一行
+                first_line = text.split('\n')[0]
+                title = first_line[:60]
+                if len(title) < len(first_line):
+                    title += "..."
+            else:
+                # 无标题的频道：截取前 50 个字符作为摘要
+                # 去掉换行符，合并成一行
+                clean_text = text.replace('\n', ' ').strip()
+                title = clean_text[:50]
+                if len(clean_text) > 50:
+                    title += "..."
             
             messages.append({
                 "id": message.id,

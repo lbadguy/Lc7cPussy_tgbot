@@ -27,6 +27,12 @@ DEFAULT_CITY = os.getenv("DEFAULT_CITY", "佛山顺德")
 DEFAULT_MODEL = os.getenv("DEFAULT_MODEL", "gemini-3-flash")
 TARGET_CHANNEL = os.getenv("TARGET_CHANNEL", "zaihuapd")
 
+# 支持的新闻频道列表
+NEWS_CHANNELS = [
+    {"name": "在华PD", "username": "zaihuapd", "has_title": True},
+    {"name": "竹新社", "username": "tnews365", "has_title": False},
+]
+
 # 支持的模型列表
 AVAILABLE_MODELS = [
     "gemini-3-flash",
