@@ -83,7 +83,7 @@ def get_model_list() -> str:
         marker = "✓" if model == config.DEFAULT_MODEL else " "
         lines.append(f"{marker} {i}. `{model}`")
     lines.append(f"\n当前默认: `{config.DEFAULT_MODEL}`")
-    lines.append("使用 `/model 模型名` 切换模型")
+    lines.append("使用 `/model [模型名]` 切换模型")
     return "\n".join(lines)
 
 

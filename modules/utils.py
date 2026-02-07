@@ -46,20 +46,3 @@ def clean_ai_response(text: str) -> str:
     text = re.sub(r'\n{3,}', '\n\n', text)
     
     return text.strip()
-
-
-def get_next_push_time(hour: int, minute: int = 0) -> str:
-    """计算距离下次推送的时间"""
-    now = datetime.now(CHINA_TZ)
-    target = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
-    
-    if now >= target:
-        target += timedelta(days=1)
-    
-    diff = target - now
-    hours = diff.seconds // 3600
-    minutes = (diff.seconds % 3600) // 60
-    
-    if hours > 0:
-        return f"{hours}小时{minutes}分钟"
-    return f"{minutes}分钟"

@@ -1,13 +1,9 @@
 """
 多功能 Telegram Bot 主程序
 
-功能：
-1. 天气预报 - 每日 8:00 推送，/weather 指令
-2. 频道汇总 - 每日 20:00 推送 @zaihuapd 消息汇总
-3. AI 对话 - /chat 指令进入对话模式（需要反代服务）
+功能：天气预报 | 频道新闻 | AI 对话 | 视频下载 | 以图搜图
 """
 import logging
-from datetime import time as dt_time
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
@@ -21,15 +17,15 @@ from telegram.ext import (
 
 import config
 from modules import weather, channel, chat, database, image_search, downloader, monitor
-from modules.utils import lc7c, clean_ai_response, get_next_push_time, CHINA_TZ
+from modules.utils import lc7c, clean_ai_response
 
 # 配置日志
 logging.basicConfig(format='%(asctime)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # 过滤掉不必要的日志
-for name in ['httpx', 'httpcore', 'telegram.ext', 'apscheduler']:
-    logging.getLogger(name).setLevel(logging.WARNING)
+for name in ['httpx', 'httpcore', 'telegram.ext', 'apscheduler', 'telethon', 'asyncio']:
+    logging.getLogger(name).setLevel(logging.ERROR)
 
 # 用户对话历史（内存存储，限制长度）
 user_conversations = {}
@@ -313,10 +309,10 @@ async def download_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         supported_sites = "\n".join([f"• {name}" for name in set(downloader.SUPPORTED_SITES.values())])
         await update.message.reply_text(lc7c(
             "📥 **视频下载器**\n\n"
-            "用法: `/dl <视频链接>`\n\n"
+            "发送格式: `/dl <视频链接>`\n\n"
             "**支持的网站：**\n"
             f"{supported_sites}\n\n"
-            "⚠️ 文件限制 50MB"
+            "⚠️ tg原因，文件限制 50MB"
         ), parse_mode='Markdown')
         return
     
@@ -363,7 +359,14 @@ async def download_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 news_cache = {}
 
 async def news_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """处理 /news 命令 - 频道消息功能"""
+    """处理 /news 命令 - 频道消息功能
+    
+    用法：
+    /news - 显示频道选择菜单
+    /news 1 - 在华PD 今日消息
+    /news 2 - 竹新社 今日消息
+    /news 1 30 - 在华PD 最近30条
+    """
     user_id = update.effective_user.id
     
     # 检查 Telethon 是否可用
@@ -391,35 +394,69 @@ async def news_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(lc7c(text), parse_mode='Markdown', reply_markup=keyboard, disable_web_page_preview=True)
         return
     
-    # /news 数字 - 获取最近N条消息
+    # /news 1 或 /news 2 或 /news 1 30 - 频道选择
     if args and args[0].isdigit():
-        limit = min(int(args[0]), 100)
-        await update.message.reply_text(f"📰 正在获取最近 {limit} 条消息...")
+        channel_idx = int(args[0]) - 1
         
-        messages = await channel.get_messages(limit=limit, today_only=False)
-        news_cache[user_id] = {"messages": messages, "type": "recent", "limit": limit}
-        total_pages = channel.get_total_pages(messages)
-        text = channel.format_messages_page(messages, 1, total_pages, f"最近 {limit} 条消息")
-        
-        keyboard = _build_page_keyboard(1, total_pages)
-        await update.message.reply_text(lc7c(text), parse_mode='Markdown', reply_markup=keyboard, disable_web_page_preview=True)
-        return
+        # 检查是否为有效频道索引
+        if 0 <= channel_idx < len(config.NEWS_CHANNELS):
+            ch = config.NEWS_CHANNELS[channel_idx]
+            limit = 50
+            today_only = True
+            
+            # 第二个参数是数量
+            if len(args) > 1 and args[1].isdigit():
+                limit = min(int(args[1]), 100)
+                today_only = False
+            
+            status = "今日消息" if today_only else f"最近 {limit} 条"
+            await update.message.reply_text(f"📰 正在获取 {ch['name']} {status}...")
+            
+            messages = await channel.get_messages(
+                channel_username=ch["username"],
+                limit=limit,
+                today_only=today_only,
+                has_title=ch["has_title"]
+            )
+            
+            if not messages:
+                await update.message.reply_text(lc7c(f"📭 {ch['name']} 暂无消息\n\n💡 试试 `/news {channel_idx + 1} 30` 查看最近30条"), parse_mode='Markdown')
+                return
+            
+            news_cache[user_id] = {"messages": messages, "type": "channel", "channel": ch}
+            total_pages = channel.get_total_pages(messages)
+            text = channel.format_messages_page(messages, 1, total_pages, f"{ch['name']} {status}")
+            
+            keyboard = _build_page_keyboard(1, total_pages)
+            logger.info(f"[频道] {ch['name']} 获取到 {len(messages)} 条")
+            await update.message.reply_text(lc7c(text), parse_mode='Markdown', reply_markup=keyboard, disable_web_page_preview=True)
+            return
+        else:
+            # 数字太大，当作获取最近N条（默认频道）
+            limit = min(int(args[0]), 100)
+            await update.message.reply_text(f"📰 正在获取最近 {limit} 条消息...")
+            
+            messages = await channel.get_messages(limit=limit, today_only=False)
+            news_cache[user_id] = {"messages": messages, "type": "recent", "limit": limit}
+            total_pages = channel.get_total_pages(messages)
+            text = channel.format_messages_page(messages, 1, total_pages, f"最近 {limit} 条消息")
+            
+            keyboard = _build_page_keyboard(1, total_pages)
+            await update.message.reply_text(lc7c(text), parse_mode='Markdown', reply_markup=keyboard, disable_web_page_preview=True)
+            return
     
-    # /news - 今日消息
-    await update.message.reply_text("📰 正在获取今日消息...")
+    # /news - 显示频道选择菜单
+    lines = ["📰 **选择新闻频道**\n"]
+    for i, ch in enumerate(config.NEWS_CHANNELS, 1):
+        lines.append(f"**{i}.** @{ch['username']} ({ch['name']})")
     
-    messages = await channel.get_messages(today_only=True)
-    if not messages:
-        await update.message.reply_text(lc7c("📭 今日该频道暂无新消息\n\n💡 试试 `/news 30` 查看最近30条消息"), parse_mode='Markdown')
-        return
+    lines.append("\n📖 **使用方法**")
+    lines.append("`/news 1` - 在华PD 今日消息")
+    lines.append("`/news 2` - 竹新社 今日消息")
+    lines.append("`/news 1 30` - 在华PD 最近30条")
+    lines.append("`/news search 关键词` - 搜索")
     
-    news_cache[user_id] = {"messages": messages, "type": "today"}
-    total_pages = channel.get_total_pages(messages)
-    text = channel.format_messages_page(messages, 1, total_pages, f"@{config.TARGET_CHANNEL} 今日消息")
-    
-    keyboard = _build_page_keyboard(1, total_pages)
-    logger.info(f"[频道] 获取到 {len(messages)} 条消息")
-    await update.message.reply_text(lc7c(text), parse_mode='Markdown', reply_markup=keyboard, disable_web_page_preview=True)
+    await update.message.reply_text(lc7c("\n".join(lines)), parse_mode='Markdown')
 
 
 def _build_page_keyboard(current_page: int, total_pages: int):
@@ -491,8 +528,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_message = update.message.text
     user_name = update.effective_user.first_name or "用户"
     
-    # 记录收到的消息
-    logger.info(f"[收到] {user_name}: {user_message[:50]}{'...' if len(user_message) > 50 else ''}")
+    # 记录收到的消息（完整显示）
+    logger.info(f"[AI收到] {user_name}: {user_message}")
     
     # 发送"正在输入"状态
     await update.message.chat.send_action("typing")
@@ -513,8 +550,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # 调用 AI
         response = chat.chat(history, settings["model"])
         
-        # 记录返回的消息
-        logger.info(f"[回复] Bot: {response[:50]}{'...' if len(response) > 50 else ''}")
+        # 记录 AI 回复（完整显示）
+        logger.info(f"[AI回复] {response}")
         
         # 添加到历史
         history.append({"role": "assistant", "content": response})
@@ -544,44 +581,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(lc7c("❌ AI 服务不可用。请确保 Antigravity Manager 正在运行。"))
         else:
             await update.message.reply_text(lc7c(f"❌ 对话出错: {error_msg[:100]}"))
-
-
-# ===== 定时任务 =====
-
-async def scheduled_weather_push(context: ContextTypes.DEFAULT_TYPE):
-    """定时推送天气（每日 8:00）"""
-    logger.info("执行每日天气推送...")
-    
-    users = database.get_subscribed_users()
-    for user_id in users:
-        try:
-            settings = database.get_user_settings(user_id)
-            report = await weather.get_weather_report(settings["city"])
-            await context.bot.send_message(chat_id=user_id, text=lc7c(report), parse_mode='Markdown')
-        except Exception as e:
-            logger.error(f"推送天气给用户 {user_id} 失败: {e}")
-
-
-async def scheduled_channel_summary(context: ContextTypes.DEFAULT_TYPE):
-    """定时推送频道汇总（每日 20:00）"""
-    logger.info("执行每日频道汇总...")
-    
-    # 检查 Telethon 是否可用
-    if not channel.telethon_client:
-        logger.warning("Telethon 未初始化，跳过频道汇总")
-        return
-    
-    try:
-        summary = await channel.get_channel_summary()
-        
-        users = database.get_subscribed_users()
-        for user_id in users:
-            try:
-                await context.bot.send_message(chat_id=user_id, text=lc7c(summary), parse_mode='Markdown')
-            except Exception as e:
-                logger.error(f"推送汇总给用户 {user_id} 失败: {e}")
-    except Exception as e:
-        logger.error(f"获取频道汇总失败: {e}")
 
 
 async def post_init(application: Application):
@@ -667,19 +666,7 @@ def main():
         logger.error(f"Bot 错误: {context.error}")
     application.add_error_handler(error_handler)
     
-    # 添加定时任务（使用 UTC+8 时区）
-    job_queue = application.job_queue
-    # 每日 8:00 推送天气 (UTC+8)
-    job_queue.run_daily(scheduled_weather_push, time=dt_time(hour=8, minute=0, tzinfo=CHINA_TZ))
-    # 每日 20:00 推送天气 (UTC+8)
-    job_queue.run_daily(scheduled_weather_push, time=dt_time(hour=20, minute=0, tzinfo=CHINA_TZ))
-    # 每日 20:00 推送频道汇总 (UTC+8)
-    job_queue.run_daily(scheduled_channel_summary, time=dt_time(hour=20, minute=0, tzinfo=CHINA_TZ))
-    
-    print("✅ Bot 已启动！")
-    print("📌 功能: 天气预报 | 频道汇总 | AI 对话")
-    print("⏰ 定时任务: 8:00/20:00 天气 | 20:00 频道汇总")
-    print("按 Ctrl+C 停止")
+    logger.info("✅ Bot 已启动")
     
     # 启动
     application.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True)
