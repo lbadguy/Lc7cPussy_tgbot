@@ -40,12 +40,8 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # 添加订阅
     database.add_subscription(user_id)
     
-    # 计算下次推送时间
-    next_weather = get_next_push_time(8, 0)
-    next_news = get_next_push_time(20, 0)
-    
     # 记录日志
-    logger.info(f"[新用户] {user_name} (ID:{user_id}) 加入了大鸡巴俱乐部")
+    logger.info(f"[新用户] {user_name} (ID:{user_id}) 加入")
     
     welcome = f"""
 🍆💦 **哟~ 是 {user_name} 啊！**
@@ -59,15 +55,6 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 别害羞，试试发个 /help 看看我有多能干~
 *Don't be shy, try /help to see how capable I am~*
-
-记住：鸡大者，得天下 🌍
-*Remember: He who has the biggest cock, rules the world* 🌍
-
-━━━━ **每日推送** ━━━━
-⏰ 天气预报: 每日 8:00 和 20:00
-    └ 下次推送: {next_weather}
-📰 新闻汇总: 每日 20:00
-    └ 下次推送: {next_news}
 """
     await update.message.reply_text(lc7c(welcome), parse_mode='Markdown')
 
