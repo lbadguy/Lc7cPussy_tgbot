@@ -41,7 +41,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     database.add_subscription(user_id)
     
     # 记录日志
-    logger.info(f"[新用户] {user_name} (ID:{user_id}) 加入")
+    logger.info(f"[新用户] {user_name} (ID:{user_id}) 加入了大鸡巴俱乐部")
     
     welcome = f"""
 🍆💦 **哟~ 是 {user_name} 啊！**
@@ -64,23 +64,25 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     help_text = """
 📖 **命令帮助**
 
-**天气相关**
-• `/weather` - 查看天气
-• `/weather 北京` - 切换城市
-
-**频道新闻**
-• `/news` - 今日新闻
-• `/news 30` - 最近30条
-• `/news search 关键词` - 搜索
-
-**图片工具**
+**工具**
 • `/image` - 以图搜图
 • `/dl 链接` - 下载视频
 
-**AI 对话**
+**AI 聊天**
 • `/chat` - 开启对话
 • `/chat off` - 关闭对话
 • `/model` - 查看/切换模型
+
+**获取频道新闻**
+• `/news` - 新闻介绍
+• `/news 1` - 在华频道 今日消息
+• `/news 2` - 竹新社 今日消息
+• `/news 1 30` - 在华频道 最近30条
+• `/news search 关键词` - 搜索关键词
+
+**天气查询**
+• `/weather` - 查看顺德天气
+• `/weather 位置` - 切换城市
 
 **其他**
 • `/start` - 重新开始
@@ -537,8 +539,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # 调用 AI
         response = chat.chat(history, settings["model"])
         
-        # 记录 AI 回复（完整显示）
-        logger.info(f"[AI回复] {response}")
+        # 记录 AI 回复（限制长度防止终端溢出）
+        log_response = response.replace('\n', ' ')[:200]
+        logger.info(f"[AI回复] {log_response}{'...' if len(response) > 200 else ''}")
         
         # 添加到历史
         history.append({"role": "assistant", "content": response})
