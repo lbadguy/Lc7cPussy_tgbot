@@ -16,7 +16,7 @@ from telegram.ext import (
 )
 
 import config
-from modules import weather, channel, chat, database, image_search, downloader, monitor
+from modules import weather, channel, chat, image_search, downloader, monitor
 from modules.utils import lc7c, clean_ai_response
 
 # 配置日志
@@ -27,9 +27,19 @@ logger = logging.getLogger(__name__)
 for name in ['httpx', 'httpcore', 'telegram.ext', 'apscheduler', 'telethon', 'asyncio']:
     logging.getLogger(name).setLevel(logging.ERROR)
 
-# 用户对话历史（内存存储，限制长度）
-user_conversations = {}
+# 用户设置（内存存储）
+user_settings = {}  # {user_id: {"model": str, "chat_mode": bool}}
+user_conversations = {}  # 对话历史
 MAX_HISTORY = 10
+
+def get_user_settings(user_id: int) -> dict:
+    """获取用户设置（内存）"""
+    if user_id not in user_settings:
+        user_settings[user_id] = {
+            "model": config.DEFAULT_MODEL,
+            "chat_mode": False
+        }
+    return user_settings[user_id]
 
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -37,11 +47,11 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     user_name = update.effective_user.first_name or "靓仔"
     
-    # 添加订阅
-    database.add_subscription(user_id)
+    # 初始化用户设置
+    get_user_settings(user_id)
     
     # 记录日志
-    logger.info(f"[新用户] {user_name} (ID:{user_id}) 加入了大鸡巴俱乐部")
+    logger.info(f"[新用户] {user_name} (ID:{user_id}) 加入")
     
     welcome = f"""
 🍆💦 **哟~ 是 {user_name} 啊！**
@@ -120,20 +130,19 @@ async def weather_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def chat_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """处理 /chat 命令"""
     user_id = update.effective_user.id
+    settings = get_user_settings(user_id)
     
     # 检查是否要关闭
     if context.args and context.args[0].lower() == "off":
-        database.update_chat_mode(user_id, False)
+        settings["chat_mode"] = False
         if user_id in user_conversations:
             del user_conversations[user_id]
         await update.message.reply_text(lc7c("🔴 已退出 AI 对话模式"))
         return
     
     # 开启对话模式
-    database.update_chat_mode(user_id, True)
+    settings["chat_mode"] = True
     user_conversations[user_id] = []
-    
-    settings = database.get_user_settings(user_id)
     
     # 构建按钮
     keyboard = build_chat_keyboard()
@@ -163,7 +172,8 @@ async def chat_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     # 退出对话
     if data == "chat_off":
-        database.update_chat_mode(user_id, False)
+        settings = get_user_settings(user_id)
+        settings["chat_mode"] = False
         if user_id in user_conversations:
             del user_conversations[user_id]
         await query.edit_message_text(lc7c("🔴 已退出 AI 对话模式"))
@@ -173,11 +183,12 @@ async def chat_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def model_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """处理 /model 命令"""
     user_id = update.effective_user.id
+    settings = get_user_settings(user_id)
     
     if context.args:
         new_model = context.args[0]
         if chat.is_valid_model(new_model):
-            database.update_user_model(user_id, new_model)
+            settings["model"] = new_model
             await update.message.reply_text(lc7c(f"✅ 模型已切换为: `{new_model}`"), parse_mode='Markdown')
         else:
             await update.message.reply_text(
@@ -508,7 +519,7 @@ async def news_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """处理普通文本消息"""
     user_id = update.effective_user.id
-    settings = database.get_user_settings(user_id)
+    settings = get_user_settings(user_id)
     
     # 检查是否在对话模式
     if not settings["chat_mode"]:
@@ -594,11 +605,11 @@ async def post_init(application: Application):
         
         # 创建发送警报的函数
         async def send_monitor_alert(message: str):
-            users = database.get_subscribed_users()
-            for user_id in users:
+            # 发送给所有已知用户
+            for uid in list(user_settings.keys()):
                 try:
                     await application.bot.send_message(
-                        chat_id=user_id,
+                        chat_id=uid,
                         text=lc7c(message),
                         parse_mode='Markdown'
                     )
@@ -620,9 +631,6 @@ async def post_shutdown(application: Application):
 def main():
     """主函数"""
     print("🤖 正在启动多功能 Bot...")
-    
-    # 初始化数据库
-    database.init_db()
     
     # 创建 Application
     application = Application.builder().token(config.BOT_TOKEN).post_init(post_init).post_shutdown(post_shutdown).build()
