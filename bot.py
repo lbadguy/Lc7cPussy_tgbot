@@ -74,57 +74,34 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     help_text = """
 📖 **命令帮助**
 
-**工具**
+• `/weather` - 天气查询
+• `/news` - 频道新闻
+• `/chat` - AI 对话
+• `/model` - 切换模型
 • `/image` - 以图搜图
 • `/dl 链接` - 下载视频
-
-**AI 聊天**
-• `/chat` - 开启对话
-• `/chat off` - 关闭对话
-• `/model` - 查看/切换模型
-
-**获取频道新闻**
-• `/news` - 新闻介绍
-• `/news 1` - 在华频道 今日消息
-• `/news 2` - 竹新社 今日消息
-• `/news 1 30` - 在华频道 最近30条
-• `/news search 关键词` - 搜索关键词
-
-**天气查询**
-• `/weather` - 查看顺德天气
-• `/weather 位置` - 切换城市
-
-**其他**
-• `/start` - 重新开始
-• `/help` - 显示帮助
+• `/test` - 测试 AI 连接
 """
-    await update.message.reply_text(lc7c(help_text), parse_mode='Markdown')
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("🌤 天气", callback_data="quick_weather"),
+         InlineKeyboardButton("📰 新闻", callback_data="quick_news")],
+        [InlineKeyboardButton("💬 AI 对话", callback_data="quick_chat"),
+         InlineKeyboardButton("🤖 切换模型", callback_data="quick_model")],
+    ])
+    await update.message.reply_text(lc7c(help_text), parse_mode='Markdown', reply_markup=keyboard)
 
 
 async def weather_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """处理 /weather 命令"""
-    user_id = update.effective_user.id
-    settings = database.get_user_settings(user_id)
-    
-    # 检查是否有参数（设置新城市）
+    # 使用参数城市或默认城市
     if context.args:
-        new_city = " ".join(context.args)
-        # 验证城市是否存在
-        city_info = await weather.search_city(new_city)
-        if city_info:
-            database.update_user_city(user_id, city_info["name"])
-            await update.message.reply_text(f"✅ 城市已更新为: {city_info['name']}")
-            # 显示新城市天气
-            report = await weather.get_weather_report(city_info["name"])
-            await update.message.reply_text(lc7c(report), parse_mode='Markdown')
-        else:
-            await update.message.reply_text(lc7c(f"❌ 未找到城市: {new_city}"))
+        city = " ".join(context.args)
     else:
-        # 显示当前城市天气
-        city = settings["city"]
-        await update.message.reply_text(f"🔍 正在获取 {city} 的天气...")
-        report = await weather.get_weather_report(city)
-        await update.message.reply_text(lc7c(report), parse_mode='Markdown')
+        city = config.DEFAULT_CITY
+    
+    await update.message.reply_text(f"🔍 正在获取 {city} 的天气...")
+    report = await weather.get_weather_report(city)
+    await update.message.reply_text(lc7c(report), parse_mode='Markdown')
 
 
 async def chat_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -181,22 +158,40 @@ async def chat_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def model_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """处理 /model 命令"""
+    """处理 /model 命令 - 显示模型选择按钮"""
     user_id = update.effective_user.id
     settings = get_user_settings(user_id)
     
+    # 如果有参数，直接切换
     if context.args:
         new_model = context.args[0]
         if chat.is_valid_model(new_model):
             settings["model"] = new_model
             await update.message.reply_text(lc7c(f"✅ 模型已切换为: `{new_model}`"), parse_mode='Markdown')
         else:
-            await update.message.reply_text(
-                lc7c(f"❌ 无效的模型名称: {new_model}\n\n" + chat.get_model_list()),
-                parse_mode='Markdown'
-            )
-    else:
-        await update.message.reply_text(lc7c(chat.get_model_list()), parse_mode='Markdown')
+            await update.message.reply_text(lc7c(f"❌ 无效的模型名称: {new_model}"))
+        return
+    
+    # 无参数，显示按钮选择
+    buttons = []
+    row = []
+    for i, model in enumerate(config.AVAILABLE_MODELS):
+        marker = "✓ " if model == settings["model"] else ""
+        # 简化显示名称
+        short_name = model.replace("gemini-", "G").replace("claude-", "C").replace("-thinking", "💭")
+        row.append(InlineKeyboardButton(f"{marker}{short_name}", callback_data=f"model_{i}"))
+        if len(row) == 2:
+            buttons.append(row)
+            row = []
+    if row:
+        buttons.append(row)
+    
+    keyboard = InlineKeyboardMarkup(buttons)
+    await update.message.reply_text(
+        lc7c(f"🤖 **选择模型**\n当前: `{settings['model']}`"),
+        parse_mode='Markdown',
+        reply_markup=keyboard
+    )
 
 
 async def test_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -205,6 +200,81 @@ async def test_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     success, message = await chat.test_connection()
     await update.message.reply_text(lc7c(message))
+
+
+async def model_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """处理模型选择按钮"""
+    query = update.callback_query
+    await query.answer()
+    
+    user_id = query.from_user.id
+    settings = get_user_settings(user_id)
+    data = query.data
+    
+    # model_0, model_1, ...
+    idx = int(data.split("_")[1])
+    if idx < len(config.AVAILABLE_MODELS):
+        new_model = config.AVAILABLE_MODELS[idx]
+        settings["model"] = new_model
+        await query.edit_message_text(lc7c(f"✅ 模型已切换为: `{new_model}`"), parse_mode='Markdown')
+
+
+async def quick_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """处理 /help 快捷按钮"""
+    query = update.callback_query
+    await query.answer()
+    
+    user_id = query.from_user.id
+    data = query.data
+    
+    if data == "quick_weather":
+        city = config.DEFAULT_CITY
+        await query.edit_message_text(f"🔍 正在获取 {city} 的天气...")
+        report = await weather.get_weather_report(city)
+        await query.edit_message_text(lc7c(report), parse_mode='Markdown')
+    
+    elif data == "quick_news":
+        # 显示频道选择按钮
+        buttons = []
+        for i, ch in enumerate(config.NEWS_CHANNELS):
+            buttons.append([
+                InlineKeyboardButton(f"📰 {ch['name']} 今日", callback_data=f"news_ch_{i}_today"),
+                InlineKeyboardButton(f"📋 最近30条", callback_data=f"news_ch_{i}_30")
+            ])
+        keyboard = InlineKeyboardMarkup(buttons)
+        await query.edit_message_text(lc7c("📰 **选择新闻频道**"), parse_mode='Markdown', reply_markup=keyboard)
+    
+    elif data == "quick_chat":
+        settings = get_user_settings(user_id)
+        settings["chat_mode"] = True
+        user_conversations[user_id] = []
+        keyboard = build_chat_keyboard()
+        await query.edit_message_text(
+            lc7c(f"🟢 已进入 AI 对话模式\n"
+            f"当前模型: {settings['model']}\n\n"
+            f"直接发送消息开始对话"),
+            reply_markup=keyboard
+        )
+    
+    elif data == "quick_model":
+        settings = get_user_settings(user_id)
+        buttons = []
+        row = []
+        for i, model in enumerate(config.AVAILABLE_MODELS):
+            marker = "✓ " if model == settings["model"] else ""
+            short_name = model.replace("gemini-", "G").replace("claude-", "C").replace("-thinking", "💭")
+            row.append(InlineKeyboardButton(f"{marker}{short_name}", callback_data=f"model_{i}"))
+            if len(row) == 2:
+                buttons.append(row)
+                row = []
+        if row:
+            buttons.append(row)
+        keyboard = InlineKeyboardMarkup(buttons)
+        await query.edit_message_text(
+            lc7c(f"🤖 **选择模型**\n当前: `{settings['model']}`"),
+            parse_mode='Markdown',
+            reply_markup=keyboard
+        )
 
 
 async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -445,18 +515,20 @@ async def news_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(lc7c(text), parse_mode='Markdown', reply_markup=keyboard, disable_web_page_preview=True)
             return
     
-    # /news - 显示频道选择菜单
-    lines = ["📰 **选择新闻频道**\n"]
-    for i, ch in enumerate(config.NEWS_CHANNELS, 1):
-        lines.append(f"**{i}.** @{ch['username']} ({ch['name']})")
+    # /news - 显示频道选择按钮
+    buttons = []
+    for i, ch in enumerate(config.NEWS_CHANNELS):
+        buttons.append([
+            InlineKeyboardButton(f"📰 {ch['name']} 今日", callback_data=f"news_ch_{i}_today"),
+            InlineKeyboardButton(f"� 最近30条", callback_data=f"news_ch_{i}_30")
+        ])
     
-    lines.append("\n📖 **使用方法**")
-    lines.append("`/news 1` - 在华PD 今日消息")
-    lines.append("`/news 2` - 竹新社 今日消息")
-    lines.append("`/news 1 30` - 在华PD 最近30条")
-    lines.append("`/news search 关键词` - 搜索")
-    
-    await update.message.reply_text(lc7c("\n".join(lines)), parse_mode='Markdown')
+    keyboard = InlineKeyboardMarkup(buttons)
+    await update.message.reply_text(
+        lc7c("📰 **选择新闻频道**"),
+        parse_mode='Markdown',
+        reply_markup=keyboard
+    )
 
 
 def _build_page_keyboard(current_page: int, total_pages: int):
@@ -478,7 +550,7 @@ def _build_page_keyboard(current_page: int, total_pages: int):
 
 
 async def news_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """处理翻页按钮回调"""
+    """处理新闻相关按钮回调"""
     query = update.callback_query
     await query.answer()
     
@@ -488,12 +560,49 @@ async def news_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data == "news_noop":
         return
     
+    # 频道选择按钮: news_ch_0_today 或 news_ch_1_30
+    if data.startswith("news_ch_"):
+        parts = data.split("_")
+        channel_idx = int(parts[2])
+        mode = parts[3]  # "today" 或 "30"
+        
+        if channel_idx >= len(config.NEWS_CHANNELS):
+            await query.edit_message_text(lc7c("❌ 无效的频道"))
+            return
+        
+        ch = config.NEWS_CHANNELS[channel_idx]
+        today_only = (mode == "today")
+        limit = 50 if today_only else 30
+        status = "今日消息" if today_only else "最近 30 条"
+        
+        await query.edit_message_text(f"📰 正在获取 {ch['name']} {status}...")
+        
+        messages = await channel.get_messages(
+            channel_username=ch["username"],
+            limit=limit,
+            today_only=today_only,
+            has_title=ch["has_title"]
+        )
+        
+        if not messages:
+            await query.edit_message_text(lc7c(f"📭 {ch['name']} 暂无消息"))
+            return
+        
+        news_cache[user_id] = {"messages": messages, "type": "channel", "channel": ch, "status": status}
+        total_pages = channel.get_total_pages(messages)
+        text = channel.format_messages_page(messages, 1, total_pages, f"{ch['name']} {status}")
+        keyboard = _build_page_keyboard(1, total_pages)
+        
+        logger.info(f"[频道] {ch['name']} 获取到 {len(messages)} 条")
+        await query.edit_message_text(lc7c(text), parse_mode='Markdown', reply_markup=keyboard, disable_web_page_preview=True)
+        return
+    
+    # 翻页按钮
     if not data.startswith("news_page_"):
         return
     
     page = int(data.split("_")[2])
     
-    # 获取缓存的消息
     cache = news_cache.get(user_id)
     if not cache:
         await query.edit_message_text(lc7c("❌ 消息已过期，请重新发送 /news"))
@@ -505,6 +614,8 @@ async def news_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # 构建标题
     if cache["type"] == "search":
         title = f"搜索: {cache['keyword']}"
+    elif cache["type"] == "channel":
+        title = f"{cache['channel']['name']} {cache.get('status', '')}"
     elif cache["type"] == "recent":
         title = f"最近 {cache['limit']} 条消息"
     else:
@@ -655,6 +766,8 @@ def main():
     # 添加回调查询处理器
     application.add_handler(CallbackQueryHandler(news_callback, pattern="^news_"))
     application.add_handler(CallbackQueryHandler(chat_callback, pattern="^chat_off$"))
+    application.add_handler(CallbackQueryHandler(model_callback, pattern="^model_"))
+    application.add_handler(CallbackQueryHandler(quick_callback, pattern="^quick_"))
     
     # 添加消息处理器
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))

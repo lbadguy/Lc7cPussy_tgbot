@@ -45,6 +45,3 @@ AVAILABLE_MODELS = [
     "claude-sonnet-4-5-thinking",
     "claude-opus-4-5-thinking",
 ]
-
-# 数据库路径
-DB_PATH = os.path.join(os.path.dirname(__file__), "data", "bot_data.db")
