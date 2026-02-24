@@ -74,7 +74,10 @@ def get_or_create_chat(user_id: int, model: str) -> object:
     """获取或创建用户的聊天会话"""
     key = f"{user_id}_{model}"
     if key not in _chat_sessions:
-        _chat_sessions[key] = client.chats.create(model=model)
+        _chat_sessions[key] = client.chats.create(
+            model=model,
+            config={'automatic_function_calling': {'disable': True}}
+        )
     return _chat_sessions[key]
 
 
@@ -108,6 +111,7 @@ def chat(messages: list[dict], model: str = None, user_id: int = None) -> str:
             response = client.models.generate_content(
                 model=use_model,
                 contents=user_message,
+                config={'automatic_function_calling': {'disable': True}}
             )
         
         # 获取回复文本
