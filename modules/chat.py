@@ -2,6 +2,7 @@
 AI 对话模块 - 使用 Antigravity Manager 反代（Gemini 协议）
 """
 import logging
+import warnings
 
 import config
 
@@ -10,7 +11,9 @@ logger = logging.getLogger(__name__)
 # Gemini 客户端
 GENAI_AVAILABLE = False
 
-# 尝试导入 google.generativeai（可选依赖）
+# 抑制弃用警告（Antigravity Tools 官方使用此库）
+warnings.filterwarnings("ignore", message=".*google.generativeai.*", category=FutureWarning)
+
 try:
     import google.generativeai as genai
     GENAI_AVAILABLE = True
@@ -23,12 +26,17 @@ def init_client():
     if not GENAI_AVAILABLE:
         return False
     
+    # 确保 URL 不含 /v1 后缀（Gemini 协议使用 /v1beta/）
+    base_url = config.ANTIGRAVITY_BASE_URL.rstrip("/")
+    if base_url.endswith("/v1"):
+        base_url = base_url[:-3]
+    
     genai.configure(
         api_key=config.ANTIGRAVITY_API_KEY,
         transport="rest",
-        client_options={'api_endpoint': config.ANTIGRAVITY_BASE_URL}
+        client_options={'api_endpoint': base_url}
     )
-    logger.info(f"Gemini 客户端已配置: {config.ANTIGRAVITY_BASE_URL}")
+    logger.info(f"Gemini 客户端已配置: {base_url}")
     return True
 
 
