@@ -68,12 +68,32 @@ def chat(messages: list[dict], model: str = None) -> str:
     
     use_model = model or config.DEFAULT_MODEL
     
-    response = client.chat.completions.create(
-        model=use_model,
-        messages=messages
-    )
+    try:
+        response = client.chat.completions.create(
+            model=use_model,
+            messages=messages,
+            timeout=60  # 60秒超时，防止卡死
+        )
+    except Exception as e:
+        error_msg = str(e)
+        if "503" in error_msg or "capacity" in error_msg.lower():
+            raise RuntimeError(f"⚠️ 模型 {use_model} 暂时不可用（服务器容量不足）\n请用 /model 切换其他模型")
+        raise
     
-    return response.choices[0].message.content
+    # 获取回复内容
+    choice = response.choices[0]
+    content = choice.message.content
+    
+    # 处理空响应（如 MALFORMED_FUNCTION_CALL）
+    if not content:
+        finish_reason = getattr(choice, 'finish_reason', 'unknown')
+        logger.warning(f"AI 返回空响应, finish_reason={finish_reason}, model={use_model}")
+        
+        if "FUNCTION_CALL" in str(finish_reason).upper():
+            return "抱歉，我无法通过工具调用来回答这个问题。请换一种方式提问，或者直接告诉我你想知道什么。"
+        return "抱歉，AI 未返回有效回复，请重试。"
+    
+    return content
 
 
 def get_model_list() -> str:

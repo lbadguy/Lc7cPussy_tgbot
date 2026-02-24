@@ -55,10 +55,10 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     welcome = f"""
 🍆💦 **哟~ 是 {user_name} 啊！**
-*Ayyyy~ Look who's here, it's {user_name}!*
+*Yooooo~ Look who's here, it's {user_name}!*
 
 欢迎来到 **大鸡巴爱小嫩逼** 俱乐部！
-*Welcome to the BigCockLovePussy Club!*
+*Welcome to the GiantCockLovePussy Club!*
 
 你的大鸡巴已经准备好为你服务了 🐔
 *Your BigCock is ready to serve you* 🐔
@@ -74,13 +74,17 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     help_text = """
 📖 **命令帮助**
 
-• `/weather` - 天气查询
-• `/news` - 频道新闻
-• `/chat` - AI 对话
-• `/model` - 切换模型
 • `/image` - 以图搜图
 • `/dl 链接` - 下载视频
+• `/chat` - AI 对话
+• `/news` - 频道新闻
+
+• `/weather` - 天气查询
+• `/model` - 切换模型
 • `/test` - 测试 AI 连接
+
+有疑问？喊一声 Lc7c
+Got any questions? Ask Lc7c directly!
 """
     keyboard = InlineKeyboardMarkup([
         [InlineKeyboardButton("🌤 天气", callback_data="quick_weather"),
@@ -689,10 +693,22 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         logger.error(f"AI 对话出错: {e}")
         error_msg = str(e)
-        if "503" in error_msg or "unhealthy" in error_msg.lower():
-            await update.message.reply_text(lc7c("❌ AI 服务不可用。请确保 Antigravity Manager 正在运行。"))
+        
+        # 出错时移除刚添加的用户消息，避免污染历史
+        if user_id in user_conversations and user_conversations[user_id]:
+            user_conversations[user_id].pop()
+        
+        keyboard = build_chat_keyboard()
+        
+        if "容量不足" in error_msg or "不可用" in error_msg:
+            # 模型容量不足（chat.py 已处理过的 RuntimeError）
+            await update.message.reply_text(lc7c(f"❌ {error_msg}"), reply_markup=keyboard)
+        elif "503" in error_msg or "unhealthy" in error_msg.lower():
+            await update.message.reply_text(lc7c("❌ AI 服务不可用\n请确保 Antigravity Manager 正在运行"), reply_markup=keyboard)
+        elif "timed out" in error_msg.lower() or "timeout" in error_msg.lower():
+            await update.message.reply_text(lc7c("❌ AI 响应超时，请重试"), reply_markup=keyboard)
         else:
-            await update.message.reply_text(lc7c(f"❌ 对话出错: {error_msg[:100]}"))
+            await update.message.reply_text(lc7c(f"❌ 对话出错: {error_msg[:150]}"), reply_markup=keyboard)
 
 
 async def post_init(application: Application):
