@@ -61,7 +61,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 *Welcome to the GiantCockLovePussy Club!*
 
 你的大鸡巴已经准备好为你服务了 🐔
-*Your BigCock is ready to serve you* 🐔
+*Your GiantCock is ready to serve you* 🐔
 
 别害羞，试试发个 /help 看看我有多能干~
 *Don't be shy, try /help to see how capable I am~*
@@ -318,6 +318,9 @@ async def image_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "• TinEye\n"
         "• SauceNAO (动漫)\n"
         "• IQDB (动漫)"
+        "搜图平台可能会搜图失败"
+        "\n"
+        "*此为一次性指令"
     ), parse_mode='Markdown')
 
 
@@ -386,6 +389,7 @@ async def download_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "发送格式: `/dl <视频链接>`\n\n"
             "**支持的网站：**\n"
             f"{supported_sites}\n\n"
+            "这个指令bug很多，但已知YouTube可用"
             "⚠️ tg原因，文件限制 50MB"
         ), parse_mode='Markdown')
         return
@@ -723,7 +727,7 @@ async def post_init(application: Application):
             logger.error(f"Telethon 启动失败: {e}")
     
     # 初始化 AI 客户端
-    chat.init_openai_client()
+    chat.init_client()
     logger.info("AI 客户端已初始化")
     
     # 初始化手机监控（仅 Termux 环境）

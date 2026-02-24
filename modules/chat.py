@@ -1,5 +1,5 @@
 """
-AI 对话模块 - 使用 Antigravity Manager 反代
+AI 对话模块 - 使用 Antigravity Manager 反代（Gemini 协议）
 """
 import logging
 
@@ -7,93 +7,123 @@ import config
 
 logger = logging.getLogger(__name__)
 
-# OpenAI 客户端（连接到 Antigravity Manager）
-client = None
-OPENAI_AVAILABLE = False
+# Gemini 客户端
+GENAI_AVAILABLE = False
 
-# 尝试导入 openai（可选依赖）
+# 尝试导入 google.generativeai（可选依赖）
 try:
-    import openai
-    OPENAI_AVAILABLE = True
+    import google.generativeai as genai
+    GENAI_AVAILABLE = True
 except ImportError:
-    logger.warning("openai 库未安装，AI 对话功能不可用")
+    logger.warning("google-generativeai 库未安装，AI 对话功能不可用")
 
 
-def init_openai_client():
-    """初始化 OpenAI 客户端"""
-    global client
+def init_client():
+    """初始化 Gemini 客户端"""
+    if not GENAI_AVAILABLE:
+        return False
     
-    if not OPENAI_AVAILABLE:
-        return None
-    
-    client = openai.OpenAI(
+    genai.configure(
         api_key=config.ANTIGRAVITY_API_KEY,
-        base_url=config.ANTIGRAVITY_BASE_URL
+        transport="rest",
+        client_options={'api_endpoint': config.ANTIGRAVITY_BASE_URL}
     )
-    return client
+    logger.info(f"Gemini 客户端已配置: {config.ANTIGRAVITY_BASE_URL}")
+    return True
 
 
 async def test_connection() -> tuple[bool, str]:
     """测试 API 连接"""
-    if not OPENAI_AVAILABLE:
-        return False, "❌ AI 功能不可用（手机端未安装 openai 库）"
-    
-    if not client:
-        return False, "❌ AI 客户端未初始化"
+    if not GENAI_AVAILABLE:
+        return False, "❌ AI 功能不可用（未安装 google-generativeai 库）"
     
     try:
-        response = client.chat.completions.create(
-            model=config.DEFAULT_MODEL,
-            messages=[{"role": "user", "content": "hi"}],
-            max_tokens=10
+        model = genai.GenerativeModel(config.DEFAULT_MODEL)
+        response = model.generate_content(
+            "hi",
+            request_options={"timeout": 15}
         )
         return True, f"✅ API 连接成功！模型: {config.DEFAULT_MODEL}"
     except Exception as e:
         error_msg = str(e)
-        if "503" in error_msg or "unhealthy" in error_msg.lower():
+        if "503" in error_msg or "unavailable" in error_msg.lower():
             return False, "❌ API 服务不可用。请确保 Antigravity Manager 正在运行。"
         elif "connection" in error_msg.lower():
             return False, "❌ 无法连接到 Antigravity Manager。"
         else:
-            return False, f"❌ API 错误: {error_msg[:100]}"
+            return False, f"❌ API 错误: {error_msg[:200]}"
+
+
+def _convert_history(messages: list[dict]) -> tuple[list[dict], str]:
+    """将 OpenAI 格式的历史转换为 Gemini 格式
+    
+    输入: [{"role": "user", "content": "..."}, {"role": "assistant", "content": "..."}]
+    输出: (gemini_history, last_user_message)
+    
+    Gemini 格式: [{"role": "user", "parts": ["..."]}, {"role": "model", "parts": ["..."]}]
+    """
+    if not messages:
+        return [], ""
+    
+    # 最后一条消息是当前用户输入
+    last_msg = messages[-1]["content"]
+    
+    # 之前的消息作为历史
+    history = []
+    for msg in messages[:-1]:
+        role = "model" if msg["role"] == "assistant" else "user"
+        history.append({
+            "role": role,
+            "parts": [msg["content"]]
+        })
+    
+    return history, last_msg
 
 
 def chat(messages: list[dict], model: str = None) -> str:
     """发送消息并获取回复"""
-    if not OPENAI_AVAILABLE:
-        raise RuntimeError("AI 功能不可用（未安装 openai）")
-    
-    if not client:
-        raise RuntimeError("AI 客户端未初始化")
+    if not GENAI_AVAILABLE:
+        raise RuntimeError("AI 功能不可用（未安装 google-generativeai）")
     
     use_model = model or config.DEFAULT_MODEL
     
     try:
-        response = client.chat.completions.create(
-            model=use_model,
-            messages=messages,
-            timeout=60  # 60秒超时，防止卡死
-        )
+        # 转换历史格式
+        history, user_message = _convert_history(messages)
+        
+        # 创建模型和对话
+        gmodel = genai.GenerativeModel(use_model)
+        
+        if history:
+            # 有历史记录，使用 chat 模式
+            conversation = gmodel.start_chat(history=history)
+            response = conversation.send_message(
+                user_message,
+                request_options={"timeout": 30}
+            )
+        else:
+            # 无历史，直接生成
+            response = gmodel.generate_content(
+                user_message,
+                request_options={"timeout": 30}
+            )
+        
+        # 获取回复文本
+        text = response.text
+        
+        if not text:
+            logger.warning(f"AI 返回空响应, model={use_model}")
+            return "抱歉，AI 未返回有效回复，请重试或换一种方式提问。"
+        
+        return text
+        
     except Exception as e:
         error_msg = str(e)
-        if "503" in error_msg or "capacity" in error_msg.lower():
+        if "503" in error_msg or "capacity" in error_msg.lower() or "unavailable" in error_msg.lower():
             raise RuntimeError(f"⚠️ 模型 {use_model} 暂时不可用（服务器容量不足）\n请用 /model 切换其他模型")
+        elif "block" in error_msg.lower() or "safety" in error_msg.lower():
+            return "⚠️ 该回复被安全过滤器拦截，请换一种方式提问。"
         raise
-    
-    # 获取回复内容
-    choice = response.choices[0]
-    content = choice.message.content
-    
-    # 处理空响应（如 MALFORMED_FUNCTION_CALL）
-    if not content:
-        finish_reason = getattr(choice, 'finish_reason', 'unknown')
-        logger.warning(f"AI 返回空响应, finish_reason={finish_reason}, model={use_model}")
-        
-        if "FUNCTION_CALL" in str(finish_reason).upper():
-            return "抱歉，我无法通过工具调用来回答这个问题。请换一种方式提问，或者直接告诉我你想知道什么。"
-        return "抱歉，AI 未返回有效回复，请重试。"
-    
-    return content
 
 
 def get_model_list() -> str:

@@ -18,9 +18,9 @@ QWEATHER_GEO_URL = "https://geoapi.qweather.com/v2"
 TELEGRAM_API_ID = os.getenv("TELEGRAM_API_ID")
 TELEGRAM_API_HASH = os.getenv("TELEGRAM_API_HASH")
 
-# Antigravity Manager
+# Antigravity Manager（Gemini 协议）
 ANTIGRAVITY_API_KEY = os.getenv("ANTIGRAVITY_API_KEY", "sk-antigravity")
-ANTIGRAVITY_BASE_URL = os.getenv("ANTIGRAVITY_BASE_URL", "http://127.0.0.1:8045/v1")
+ANTIGRAVITY_BASE_URL = os.getenv("ANTIGRAVITY_BASE_URL", "http://127.0.0.1:8045")
 
 # 默认设置
 DEFAULT_CITY = os.getenv("DEFAULT_CITY", "佛山顺德")
