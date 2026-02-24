@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 GENAI_AVAILABLE = False
 
 # 抑制弃用警告（Antigravity Tools 官方使用此库）
-warnings.filterwarnings("ignore", message=".*google.generativeai.*", category=FutureWarning)
+warnings.filterwarnings("ignore", category=FutureWarning, module="google.generativeai")
 
 try:
     import google.generativeai as genai
