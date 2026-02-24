@@ -29,8 +29,6 @@ for name in ['httpx', 'httpcore', 'telegram.ext', 'apscheduler', 'telethon', 'as
 
 # 用户设置（内存存储）
 user_settings = {}  # {user_id: {"model": str, "chat_mode": bool}}
-user_conversations = {}  # 对话历史
-MAX_HISTORY = 10
 
 def get_user_settings(user_id: int) -> dict:
     """获取用户设置（内存）"""
@@ -116,14 +114,13 @@ async def chat_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # 检查是否要关闭
     if context.args and context.args[0].lower() == "off":
         settings["chat_mode"] = False
-        if user_id in user_conversations:
-            del user_conversations[user_id]
+        chat.reset_chat(user_id)
         await update.message.reply_text(lc7c("🔴 已退出 AI 对话模式"))
         return
     
     # 开启对话模式
     settings["chat_mode"] = True
-    user_conversations[user_id] = []
+    chat.reset_chat(user_id)  # 重置对话历史
     
     # 构建按钮
     keyboard = build_chat_keyboard()
@@ -155,8 +152,7 @@ async def chat_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data == "chat_off":
         settings = get_user_settings(user_id)
         settings["chat_mode"] = False
-        if user_id in user_conversations:
-            del user_conversations[user_id]
+        chat.reset_chat(user_id)
         await query.edit_message_text(lc7c("🔴 已退出 AI 对话模式"))
         return
 
@@ -251,7 +247,7 @@ async def quick_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data == "quick_chat":
         settings = get_user_settings(user_id)
         settings["chat_mode"] = True
-        user_conversations[user_id] = []
+        chat.reset_chat(user_id)
         keyboard = build_chat_keyboard()
         await query.edit_message_text(
             lc7c(f"🟢 已进入 AI 对话模式\n"
@@ -647,34 +643,23 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_message = update.message.text
     user_name = update.effective_user.first_name or "用户"
     
-    # 记录收到的消息（完整显示）
+    # 记录收到的消息
     logger.info(f"[AI收到] {user_name}: {user_message}")
     
     # 发送"正在输入"状态
     await update.message.chat.send_action("typing")
     
     try:
-        # 获取/初始化对话历史
-        if user_id not in user_conversations:
-            user_conversations[user_id] = []
-        
-        history = user_conversations[user_id]
-        history.append({"role": "user", "content": user_message})
-        
-        # 限制历史长度
-        if len(history) > MAX_HISTORY * 2:
-            history = history[-MAX_HISTORY * 2:]
-            user_conversations[user_id] = history
-        
-        # 调用 AI
-        response = chat.chat(history, settings["model"])
+        # 调用 AI（chat session 自动管理对话历史）
+        response = chat.chat(
+            [{"role": "user", "content": user_message}],
+            settings["model"],
+            user_id=user_id
+        )
         
         # 记录 AI 回复（限制长度防止终端溢出）
         log_response = response.replace('\n', ' ')[:200]
         logger.info(f"[AI回复] {log_response}{'...' if len(response) > 200 else ''}")
-        
-        # 添加到历史
-        history.append({"role": "assistant", "content": response})
         
         # 清理 Markdown 符号
         clean_response = clean_ai_response(response)
@@ -697,11 +682,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         logger.error(f"AI 对话出错: {e}")
         error_msg = str(e)
-        
-        # 出错时移除刚添加的用户消息，避免污染历史
-        if user_id in user_conversations and user_conversations[user_id]:
-            user_conversations[user_id].pop()
-        
         keyboard = build_chat_keyboard()
         
         if "容量不足" in error_msg or "不可用" in error_msg:

@@ -1,40 +1,42 @@
 """
-AI 对话模块 - 使用 Antigravity Manager 反代（Gemini 协议）
+AI 对话模块 - 使用 Antigravity Manager 反代（google-genai 新 SDK）
 """
 import logging
-import warnings
 
 import config
 
 logger = logging.getLogger(__name__)
 
 # Gemini 客户端
+client = None
 GENAI_AVAILABLE = False
 
-# 抑制弃用警告（Antigravity Tools 官方使用此库）
-warnings.filterwarnings("ignore", category=FutureWarning, module="google.generativeai")
-
 try:
-    import google.generativeai as genai
+    from google import genai
+    from google.genai import types
     GENAI_AVAILABLE = True
 except ImportError:
-    logger.warning("google-generativeai 库未安装，AI 对话功能不可用")
+    logger.warning("google-genai 库未安装，AI 对话功能不可用")
 
 
 def init_client():
     """初始化 Gemini 客户端"""
+    global client
+    
     if not GENAI_AVAILABLE:
         return False
     
-    # 确保 URL 不含 /v1 后缀（Gemini 协议使用 /v1beta/）
+    # 确保 URL 不含 /v1 后缀
     base_url = config.ANTIGRAVITY_BASE_URL.rstrip("/")
     if base_url.endswith("/v1"):
         base_url = base_url[:-3]
     
-    genai.configure(
+    client = genai.Client(
         api_key=config.ANTIGRAVITY_API_KEY,
-        transport="rest",
-        client_options={'api_endpoint': base_url}
+        http_options=types.HttpOptions(
+            base_url=base_url,
+            timeout=30000,  # 30 秒超时（毫秒）
+        )
     )
     logger.info(f"Gemini 客户端已配置: {base_url}")
     return True
@@ -43,13 +45,15 @@ def init_client():
 async def test_connection() -> tuple[bool, str]:
     """测试 API 连接"""
     if not GENAI_AVAILABLE:
-        return False, "❌ AI 功能不可用（未安装 google-generativeai 库）"
+        return False, "❌ AI 功能不可用（未安装 google-genai 库）"
+    
+    if not client:
+        return False, "❌ AI 客户端未初始化"
     
     try:
-        model = genai.GenerativeModel(config.DEFAULT_MODEL)
-        response = model.generate_content(
-            "hi",
-            request_options={"timeout": 15}
+        response = client.models.generate_content(
+            model=config.DEFAULT_MODEL,
+            contents="hi",
         )
         return True, f"✅ API 连接成功！模型: {config.DEFAULT_MODEL}"
     except Exception as e:
@@ -62,58 +66,48 @@ async def test_connection() -> tuple[bool, str]:
             return False, f"❌ API 错误: {error_msg[:200]}"
 
 
-def _convert_history(messages: list[dict]) -> tuple[list[dict], str]:
-    """将 OpenAI 格式的历史转换为 Gemini 格式
-    
-    输入: [{"role": "user", "content": "..."}, {"role": "assistant", "content": "..."}]
-    输出: (gemini_history, last_user_message)
-    
-    Gemini 格式: [{"role": "user", "parts": ["..."]}, {"role": "model", "parts": ["..."]}]
-    """
-    if not messages:
-        return [], ""
-    
-    # 最后一条消息是当前用户输入
-    last_msg = messages[-1]["content"]
-    
-    # 之前的消息作为历史
-    history = []
-    for msg in messages[:-1]:
-        role = "model" if msg["role"] == "assistant" else "user"
-        history.append({
-            "role": role,
-            "parts": [msg["content"]]
-        })
-    
-    return history, last_msg
+# 用户聊天会话缓存
+_chat_sessions = {}  # {user_id: chat_session}
 
 
-def chat(messages: list[dict], model: str = None) -> str:
+def get_or_create_chat(user_id: int, model: str) -> object:
+    """获取或创建用户的聊天会话"""
+    key = f"{user_id}_{model}"
+    if key not in _chat_sessions:
+        _chat_sessions[key] = client.chats.create(model=model)
+    return _chat_sessions[key]
+
+
+def reset_chat(user_id: int):
+    """重置用户的聊天会话"""
+    keys_to_remove = [k for k in _chat_sessions if k.startswith(f"{user_id}_")]
+    for key in keys_to_remove:
+        del _chat_sessions[key]
+
+
+def chat(messages: list[dict], model: str = None, user_id: int = None) -> str:
     """发送消息并获取回复"""
     if not GENAI_AVAILABLE:
-        raise RuntimeError("AI 功能不可用（未安装 google-generativeai）")
+        raise RuntimeError("AI 功能不可用（未安装 google-genai）")
+    
+    if not client:
+        raise RuntimeError("AI 客户端未初始化")
     
     use_model = model or config.DEFAULT_MODEL
     
     try:
-        # 转换历史格式
-        history, user_message = _convert_history(messages)
+        # 获取最后一条用户消息
+        user_message = messages[-1]["content"] if messages else ""
         
-        # 创建模型和对话
-        gmodel = genai.GenerativeModel(use_model)
-        
-        if history:
-            # 有历史记录，使用 chat 模式
-            conversation = gmodel.start_chat(history=history)
-            response = conversation.send_message(
-                user_message,
-                request_options={"timeout": 30}
-            )
+        if user_id:
+            # 使用 chat session（自动管理历史）
+            chat_session = get_or_create_chat(user_id, use_model)
+            response = chat_session.send_message(user_message)
         else:
-            # 无历史，直接生成
-            response = gmodel.generate_content(
-                user_message,
-                request_options={"timeout": 30}
+            # 无 user_id，直接生成
+            response = client.models.generate_content(
+                model=use_model,
+                contents=user_message,
             )
         
         # 获取回复文本
