@@ -35,7 +35,7 @@ def init_client():
         api_key=config.ANTIGRAVITY_API_KEY,
         http_options=types.HttpOptions(
             base_url=base_url,
-            timeout=30000,  # 30 秒超时（毫秒）
+            timeout=120000,  # 120 秒超时（thinking 模型需要更长时间）
         )
     )
     logger.info(f"Gemini 客户端已配置: {base_url}")
@@ -64,6 +64,39 @@ async def test_connection() -> tuple[bool, str]:
             return False, "❌ 无法连接到 Antigravity Manager。"
         else:
             return False, f"❌ API 错误: {error_msg[:200]}"
+
+
+def _extract_text(response) -> str:
+    """从响应中提取非 thought 的文本
+    
+    Thinking 模型的 parts 包含 thought=true 的推理步骤，
+    我们只需要最终的回复文本（没有 thought 标记的 part）。
+    """
+    try:
+        # 先尝试 response.text（适用于普通模型）
+        text = response.text
+        if text:
+            return text
+    except Exception:
+        pass
+    
+    # 手动遍历 parts，跳过 thought 部分
+    try:
+        candidates = response.candidates
+        if candidates:
+            parts = candidates[0].content.parts
+            text_parts = []
+            for part in parts:
+                # 跳过 thought 部分
+                if hasattr(part, 'thought') and part.thought:
+                    continue
+                if hasattr(part, 'text') and part.text:
+                    text_parts.append(part.text)
+            return "".join(text_parts)
+    except Exception as e:
+        logger.warning(f"提取文本失败: {e}")
+    
+    return ""
 
 
 # 用户聊天会话缓存
@@ -114,8 +147,8 @@ def chat(messages: list[dict], model: str = None, user_id: int = None) -> str:
                 config={'automatic_function_calling': {'disable': True}}
             )
         
-        # 获取回复文本
-        text = response.text
+        # 获取回复文本（处理 thinking 模型的 thought parts）
+        text = _extract_text(response)
         
         if not text:
             logger.warning(f"AI 返回空响应, model={use_model}")
