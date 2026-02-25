@@ -158,6 +158,14 @@ def chat(messages: list[dict], model: str = None, user_id: int = None) -> str:
         
     except Exception as e:
         error_msg = str(e)
+        
+        # 清理损坏的 chat session，防止影响后续请求
+        if user_id:
+            key = f"{user_id}_{use_model}"
+            if key in _chat_sessions:
+                del _chat_sessions[key]
+                logger.info(f"已清理损坏的 chat session: {key}")
+        
         if "503" in error_msg or "capacity" in error_msg.lower() or "unavailable" in error_msg.lower():
             raise RuntimeError(f"⚠️ 模型 {use_model} 暂时不可用（服务器容量不足）\n请用 /model 切换其他模型")
         elif "block" in error_msg.lower() or "safety" in error_msg.lower():

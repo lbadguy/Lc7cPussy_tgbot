@@ -18,7 +18,7 @@ from telegram.ext import (
 
 import config
 from modules import weather, channel, chat, image_search, downloader, monitor
-from modules.utils import lc7c, clean_ai_response
+from modules.utils import lc7c, clean_ai_response, safe_reply, safe_edit
 
 # 配置日志
 logging.basicConfig(format='%(asctime)s - %(message)s', level=logging.INFO)
@@ -65,7 +65,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 别害羞，试试发个 /help 看看我有多能干~
 *Don't be shy, try /help to see how capable I am~*
 """
-    await update.message.reply_text(lc7c(welcome), parse_mode='Markdown')
+    await safe_reply(update.message, lc7c(welcome), parse_mode='Markdown')
 
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -91,7 +91,7 @@ Got any questions? Ask Lc7c directly!
         [InlineKeyboardButton("💬 AI 对话", callback_data="quick_chat"),
          InlineKeyboardButton("🤖 切换模型", callback_data="quick_model")],
     ])
-    await update.message.reply_text(lc7c(help_text), parse_mode='Markdown', reply_markup=keyboard)
+    await safe_reply(update.message, lc7c(help_text), parse_mode='Markdown', reply_markup=keyboard)
 
 
 async def weather_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -104,7 +104,7 @@ async def weather_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     await update.message.reply_text(f"🔍 正在获取 {city} 的天气...")
     report = await weather.get_weather_report(city)
-    await update.message.reply_text(lc7c(report), parse_mode='Markdown')
+    await safe_reply(update.message, lc7c(report), parse_mode='Markdown')
 
 
 async def chat_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -168,7 +168,7 @@ async def model_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         new_model = context.args[0]
         if chat.is_valid_model(new_model):
             settings["model"] = new_model
-            await update.message.reply_text(lc7c(f"✅ 模型已切换为: `{new_model}`"), parse_mode='Markdown')
+            await safe_reply(update.message, lc7c(f"✅ 模型已切换为: `{new_model}`"), parse_mode='Markdown')
         else:
             await update.message.reply_text(lc7c(f"❌ 无效的模型名称: {new_model}"))
         return
@@ -188,7 +188,7 @@ async def model_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         buttons.append(row)
     
     keyboard = InlineKeyboardMarkup(buttons)
-    await update.message.reply_text(
+    await safe_reply(update.message, 
         lc7c(f"🤖 **选择模型**\n当前: `{settings['model']}`"),
         parse_mode='Markdown',
         reply_markup=keyboard
@@ -217,7 +217,7 @@ async def model_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if idx < len(config.AVAILABLE_MODELS):
         new_model = config.AVAILABLE_MODELS[idx]
         settings["model"] = new_model
-        await query.edit_message_text(lc7c(f"✅ 模型已切换为: `{new_model}`"), parse_mode='Markdown')
+        await safe_edit(query, lc7c(f"✅ 模型已切换为: `{new_model}`"), parse_mode='Markdown')
 
 
 async def quick_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -232,7 +232,7 @@ async def quick_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         city = config.DEFAULT_CITY
         await query.edit_message_text(f"🔍 正在获取 {city} 的天气...")
         report = await weather.get_weather_report(city)
-        await query.edit_message_text(lc7c(report), parse_mode='Markdown')
+        await safe_edit(query, lc7c(report), parse_mode='Markdown')
     
     elif data == "quick_news":
         # 显示频道选择按钮
@@ -243,7 +243,7 @@ async def quick_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 InlineKeyboardButton(f"📋 最近30条", callback_data=f"news_ch_{i}_30")
             ])
         keyboard = InlineKeyboardMarkup(buttons)
-        await query.edit_message_text(lc7c("📰 **选择新闻频道**"), parse_mode='Markdown', reply_markup=keyboard)
+        await safe_edit(query, lc7c("📰 **选择新闻频道**"), parse_mode='Markdown', reply_markup=keyboard)
     
     elif data == "quick_chat":
         settings = get_user_settings(user_id)
@@ -271,7 +271,7 @@ async def quick_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if row:
             buttons.append(row)
         keyboard = InlineKeyboardMarkup(buttons)
-        await query.edit_message_text(
+        await safe_edit(query, 
             lc7c(f"🤖 **选择模型**\n当前: `{settings['model']}`"),
             parse_mode='Markdown',
             reply_markup=keyboard
@@ -281,13 +281,13 @@ async def quick_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """处理 /status 命令 - 手机状态（隐藏命令）"""
     status_text = monitor.get_status_text()
-    await update.message.reply_text(lc7c(status_text), parse_mode='Markdown')
+    await safe_reply(update.message, lc7c(status_text), parse_mode='Markdown')
 
 
 async def net_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """处理 /net 命令 - 流量统计（隐藏命令）"""
     net_text = monitor.get_net_text()
-    await update.message.reply_text(lc7c(net_text), parse_mode='Markdown')
+    await safe_reply(update.message, lc7c(net_text), parse_mode='Markdown')
 
 # 等待搜图的用户列表
 waiting_for_image = set()
@@ -305,7 +305,7 @@ async def image_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # 标记用户等待发送图片
     waiting_for_image.add(user_id)
     
-    await update.message.reply_text(lc7c(
+    await safe_reply(update.message, lc7c(
         "📷 **以图搜图**\n\n"
         "请发送一张图片，我将为你生成搜图链接\n\n"
         "支持的搜索引擎：\n"
@@ -314,10 +314,10 @@ async def image_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "• Bing Visual\n"
         "• TinEye\n"
         "• SauceNAO (动漫)\n"
-        "• IQDB (动漫)"
-        "搜图平台可能会搜图失败"
+        "• IQDB (动漫)\n"
+        "搜图平台可能会搜图失败\n"
         "\n"
-        "*此为一次性指令"
+        "此为一次性指令"
     ), parse_mode='Markdown')
 
 
@@ -364,7 +364,7 @@ async def process_image_search(update: Update, photo_message):
             reply_markup = InlineKeyboardMarkup(keyboard)
             
             logger.info(f"[搜图] 用户 {update.effective_user.id} 搜索成功")
-            await update.message.reply_text(
+            await safe_reply(update.message,
                 lc7c(text), 
                 parse_mode='Markdown', 
                 reply_markup=reply_markup
@@ -386,7 +386,7 @@ async def download_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "发送格式: `/dl <视频链接>`\n\n"
             "**支持的网站：**\n"
             f"{supported_sites}\n\n"
-            "这个指令bug很多，但已知YouTube可用"
+            "这个指令bug很多，但已知YouTube可用\n"
             "⚠️ tg原因，文件限制 50MB"
         ), parse_mode='Markdown')
         return
@@ -466,7 +466,7 @@ async def news_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         text = channel.format_messages_page(messages, 1, total_pages, f"搜索: {keyword}")
         
         keyboard = _build_page_keyboard(1, total_pages)
-        await update.message.reply_text(lc7c(text), parse_mode='Markdown', reply_markup=keyboard, disable_web_page_preview=True)
+        await safe_reply(update.message, lc7c(text), parse_mode='Markdown', reply_markup=keyboard, disable_web_page_preview=True)
         return
     
     # /news 1 或 /news 2 或 /news 1 30 - 频道选择
@@ -495,7 +495,7 @@ async def news_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             
             if not messages:
-                await update.message.reply_text(lc7c(f"📭 {ch['name']} 暂无消息\n\n💡 试试 `/news {channel_idx + 1} 30` 查看最近30条"), parse_mode='Markdown')
+                await safe_reply(update.message, lc7c(f"📭 {ch['name']} 暂无消息\n\n💡 试试 `/news {channel_idx + 1} 30` 查看最近30条"), parse_mode='Markdown')
                 return
             
             news_cache[user_id] = {"messages": messages, "type": "channel", "channel": ch}
@@ -504,7 +504,7 @@ async def news_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
             keyboard = _build_page_keyboard(1, total_pages)
             logger.info(f"[频道] {ch['name']} 获取到 {len(messages)} 条")
-            await update.message.reply_text(lc7c(text), parse_mode='Markdown', reply_markup=keyboard, disable_web_page_preview=True)
+            await safe_reply(update.message, lc7c(text), parse_mode='Markdown', reply_markup=keyboard, disable_web_page_preview=True)
             return
         else:
             # 数字太大，当作获取最近N条（默认频道）
@@ -517,7 +517,7 @@ async def news_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             text = channel.format_messages_page(messages, 1, total_pages, f"最近 {limit} 条消息")
             
             keyboard = _build_page_keyboard(1, total_pages)
-            await update.message.reply_text(lc7c(text), parse_mode='Markdown', reply_markup=keyboard, disable_web_page_preview=True)
+            await safe_reply(update.message, lc7c(text), parse_mode='Markdown', reply_markup=keyboard, disable_web_page_preview=True)
             return
     
     # /news - 显示频道选择按钮
@@ -599,7 +599,7 @@ async def news_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         keyboard = _build_page_keyboard(1, total_pages)
         
         logger.info(f"[频道] {ch['name']} 获取到 {len(messages)} 条")
-        await query.edit_message_text(lc7c(text), parse_mode='Markdown', reply_markup=keyboard, disable_web_page_preview=True)
+        await safe_edit(query, lc7c(text), parse_mode='Markdown', reply_markup=keyboard, disable_web_page_preview=True)
         return
     
     # 翻页按钮
@@ -629,7 +629,7 @@ async def news_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = channel.format_messages_page(messages, page, total_pages, title)
     keyboard = _build_page_keyboard(page, total_pages)
     
-    await query.edit_message_text(lc7c(text), parse_mode='Markdown', reply_markup=keyboard, disable_web_page_preview=True)
+    await safe_edit(query, lc7c(text), parse_mode='Markdown', reply_markup=keyboard, disable_web_page_preview=True)
 
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -646,6 +646,15 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     # 记录收到的消息
     logger.info(f"[AI收到] {user_name}: {user_message}")
+    
+    # 构建按钮
+    keyboard = build_chat_keyboard()
+    
+    # 发送"正在思考"占位消息
+    thinking_msg = await update.message.reply_text(
+        lc7c("🤔 AI 正在思考..."),
+        reply_markup=keyboard
+    )
     
     # 发送"正在输入"状态
     await update.message.chat.send_action("typing")
@@ -666,35 +675,34 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # 清理 Markdown 符号
         clean_response = clean_ai_response(response)
         
-        # 构建按钮
-        keyboard = build_chat_keyboard()
-        
-        # 发送回复
+        # 编辑"思考中"消息为实际回复
         if len(clean_response) > 4000:
-            # 长消息分段发送，只在最后一段加按钮
+            # 长消息：编辑思考消息为第一段，后续分段发送新消息
             parts = [clean_response[i:i+4000] for i in range(0, len(clean_response), 4000)]
-            for i, part in enumerate(parts):
+            # 第一段替换思考消息
+            await thinking_msg.edit_text(lc7c(parts[0]))
+            # 后续段发送新消息，最后一段加按钮
+            for i, part in enumerate(parts[1:], 1):
                 if i == len(parts) - 1:
                     await update.message.reply_text(lc7c(part), reply_markup=keyboard)
                 else:
                     await update.message.reply_text(lc7c(part))
         else:
-            await update.message.reply_text(lc7c(clean_response), reply_markup=keyboard)
+            await thinking_msg.edit_text(lc7c(clean_response), reply_markup=keyboard)
             
     except Exception as e:
         logger.error(f"AI 对话出错: {e}")
         error_msg = str(e)
-        keyboard = build_chat_keyboard()
         
+        # 编辑"思考中"消息为错误信息
         if "容量不足" in error_msg or "不可用" in error_msg:
-            # 模型容量不足（chat.py 已处理过的 RuntimeError）
-            await update.message.reply_text(lc7c(f"❌ {error_msg}"), reply_markup=keyboard)
+            await thinking_msg.edit_text(lc7c(f"❌ {error_msg}"), reply_markup=keyboard)
         elif "503" in error_msg or "unhealthy" in error_msg.lower():
-            await update.message.reply_text(lc7c("❌ AI 服务不可用\n请确保 Antigravity Manager 正在运行"), reply_markup=keyboard)
+            await thinking_msg.edit_text(lc7c("❌ AI 服务不可用\n请确保 Antigravity Manager 正在运行"), reply_markup=keyboard)
         elif "timed out" in error_msg.lower() or "timeout" in error_msg.lower():
-            await update.message.reply_text(lc7c("❌ AI 响应超时，请重试"), reply_markup=keyboard)
+            await thinking_msg.edit_text(lc7c("❌ AI 响应超时，请重试"), reply_markup=keyboard)
         else:
-            await update.message.reply_text(lc7c(f"❌ 对话出错: {error_msg[:150]}"), reply_markup=keyboard)
+            await thinking_msg.edit_text(lc7c(f"❌ 对话出错: {error_msg[:150]}"), reply_markup=keyboard)
 
 
 async def post_init(application: Application):
