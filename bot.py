@@ -4,6 +4,7 @@
 功能：天气预报 | 频道新闻 | AI 对话 | 视频下载 | 以图搜图
 """
 import logging
+import asyncio
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
@@ -74,7 +75,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 • `/image` - 以图搜图
 • `/dl 链接` - 下载视频
-• `/chat` - AI 对话
+• `/chat` - 和 AI 对话（Gemini、Claude）
 • `/news` - 频道新闻
 
 • `/weather` - 天气查询
@@ -650,11 +651,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.chat.send_action("typing")
     
     try:
-        # 调用 AI（chat session 自动管理对话历史）
-        response = chat.chat(
+        # 在后台线程调用 AI（避免阻塞事件循环）
+        response = await asyncio.to_thread(
+            chat.chat,
             [{"role": "user", "content": user_message}],
             settings["model"],
-            user_id=user_id
+            user_id
         )
         
         # 记录 AI 回复（限制长度防止终端溢出）
