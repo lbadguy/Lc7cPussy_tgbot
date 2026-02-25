@@ -38,7 +38,7 @@ def init_client():
             timeout=120000,  # 120 秒超时（thinking 模型需要更长时间）
         )
     )
-    logger.info(f"Gemini 客户端已配置: {base_url}")
+    logger.info(f"Gemini 客户端已配置")
     return True
 
 

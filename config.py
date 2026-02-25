@@ -18,6 +18,12 @@ QWEATHER_GEO_URL = "https://geoapi.qweather.com/v2"
 TELEGRAM_API_ID = os.getenv("TELEGRAM_API_ID")
 TELEGRAM_API_HASH = os.getenv("TELEGRAM_API_HASH")
 
+# 代理配置（Telethon 用 SOCKS5 连接 Telegram）
+PROXY_ENABLED = os.getenv("PROXY_ENABLED", "true").lower() == "true"
+PROXY_TYPE = os.getenv("PROXY_TYPE", "socks5")  # socks5 / http
+PROXY_HOST = os.getenv("PROXY_HOST", "127.0.0.1")
+PROXY_PORT = int(os.getenv("PROXY_PORT", "10808"))
+
 # Antigravity Manager（Gemini 协议）
 ANTIGRAVITY_API_KEY = os.getenv("ANTIGRAVITY_API_KEY", "sk-antigravity")
 ANTIGRAVITY_BASE_URL = os.getenv("ANTIGRAVITY_BASE_URL", "http://127.0.0.1:8045")

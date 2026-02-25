@@ -6,6 +6,7 @@ import logging
 from datetime import datetime, timedelta
 from telethon import TelegramClient
 from telethon.tl.types import Message
+import python_socks
 
 import config
 
@@ -19,7 +20,7 @@ PAGE_SIZE = 10
 
 
 def init_telethon_client():
-    """初始化 Telethon 客户端"""
+    """初始化 Telethon 客户端（支持 SOCKS5 代理）"""
     global telethon_client
     
     if not config.TELEGRAM_API_ID or not config.TELEGRAM_API_HASH:
@@ -32,10 +33,23 @@ def init_telethon_client():
         logger.error("TELEGRAM_API_ID 必须是数字")
         return None
     
+    # 构建代理配置
+    proxy = None
+    if config.PROXY_ENABLED:
+        proxy_type_map = {
+            "socks5": python_socks.ProxyType.SOCKS5,
+            "socks4": python_socks.ProxyType.SOCKS4,
+            "http": python_socks.ProxyType.HTTP,
+        }
+        proxy_type = proxy_type_map.get(config.PROXY_TYPE.lower(), python_socks.ProxyType.SOCKS5)
+        proxy = (proxy_type, config.PROXY_HOST, config.PROXY_PORT)
+        logger.info(f"Telethon 代理已配置: {config.PROXY_TYPE}://{config.PROXY_HOST}:{config.PROXY_PORT}")
+    
     telethon_client = TelegramClient(
         'bot_session',
         api_id,
-        config.TELEGRAM_API_HASH
+        config.TELEGRAM_API_HASH,
+        proxy=proxy
     )
     return telethon_client
 
